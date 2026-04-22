@@ -13,3 +13,11 @@
 ## Related Projects
 
 - `ForgeLoopTUI` (standalone TUI rendering library): https://github.com/BiBoyang/ForgeLoopTUI
+
+## Suggested GitHub Topics
+
+- `swift`
+- `cli`
+- `coding-agent`
+- `llm-agent`
+- `terminal-ui`
