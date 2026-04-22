@@ -1,0 +1,164 @@
+# Review Log
+
+## 2026-04-21
+- 初始化协作结构与评审规范。
+- 下一步：进入 `STEP-001` 开发与评审循环。
+- `STEP-001` 二审通过（Pass）：
+  - `steer(_ message: Message)` 形态修正完成；
+  - `alreadyRunning` 分支回滚 drained 队列已实现；
+  - 新增真实并发测试覆盖“streaming + continue + queue 不丢失”场景。
+- `STEP-002` 二审通过（Pass）：
+  - `AgentEvent` 新增 `toolExecutionStart/End` 及 type 映射；
+  - `AgentLoop` 在 `messageEnd` 后、`turnEnd` 前为每个 `toolCall` 发出 start→end 占位事件；
+  - 新增工具事件顺序/数量/位置约束测试，`swift test --filter Agent` 10/10 通过。
+- `STEP-003` 二审通过（Pass）：
+  - `TranscriptRenderer` 新增 `pendingTools`，完成 `toolExecutionStart/End` 占位替换；
+  - streaming 覆盖更新在“长→短→长”和行数缩短场景下无残留；
+  - 新增 7 个渲染测试，回归 `Agent` 测试仍全部通过。
+- `STEP-004` 二审通过（Pass）：
+  - 新增 `PromptController`，按 `isStreaming` 分流 Enter（idle→prompt，streaming→steer）；
+  - `CodingTUI` 已接入控制器，避免 streaming 期间误触发并发 prompt；
+  - 修复 `continue()` 队列优先级（先 drain queue 再判空 transcript），消除全量回归不稳定点；
+  - `swift test` 全量 22/22 通过。
+- `STEP-005` 二审通过（Pass）：
+  - `FauxProvider` 增加循环后取消检查，修复“aborted error 后又 done”的双终止竞态；
+  - 新增 4 个 AI 侧取消语义测试 + 1 个 Agent abort 集成测试；
+  - 关键命令与全量回归通过：`swift test --filter Faux`、`swift test --filter Agent`、`swift test`（27/27）。
+- Phase 2 看板已创建，`STEP-006` 置为 `Ready`（真实 OpenAI Responses 最小接入）。
+
+## 2026-04-22
+- `STEP-006` 二审通过（Pass）：
+  - 新增 `OpenAIResponsesProvider`，完成 `response.output_text.delta -> textDelta`、`response.completed -> done + end`、`response.failed/response.error -> error + end`；
+  - 取消语义闭环：命中 `options.cancellation` 时输出 `.error(reason: .aborted)` 并结束，且不再发 `.done`；
+  - `registerBuiltins` 增加 `OPENAI_API_KEY` 条件注册 `openai-responses`，保留 `faux` 默认路径；
+  - 新增 `OpenAIResponsesProviderTests` 4 个用例，覆盖 text/done、error、cancel、builtins 注册。
+- 验证通过：
+  - `swift test --filter OpenAIResponses`
+  - `swift test --filter AI`
+  - `swift test`（31/31）
+- 看板推进：
+  - `STEP-006 -> Done`
+  - `STEP-007 -> Ready`
+- 批量开发计划已发布：
+  - 新增 `STEP-007/008/009/010` 任务单；
+  - 发布 `BATCH-001（STEP-007~009）`，支持一次开发多项后集中 review；
+  - 看板状态调整为：`STEP-007~009 -> Ready`。
+- `BATCH-001` 评审结论：`Changes Requested`
+  - ✅ 通过项：
+    - 真实工具闭环已落地：`assistant(tool_call) -> toolExecutionStart/End -> tool_result`；
+    - `read/write` 与 cwd 越界约束已生效；
+    - `bash` 工具的 timeout/cancel 主路径可用；
+    - 测试复核通过：`swift test --filter AgentLoopToolExecution`、`BuiltinReadWriteTool`、`BashTool`、`Agent`、`AI`、`swift test`（59/59）。
+  - ❗必改项：
+    1) `Agent.continue()` 非 queued 分支未透传 `toolExecutor/cwd`，导致该路径工具闭环失效；
+    2) `ProcessRunner` 对 `timeoutMs` 直接做 `UInt64(timeoutMs)`，负值可触发运行时崩溃。
+- `BATCH-001` 修复后二审通过（Pass）：
+  - 已修复 `continue()` 非 queued 分支的 `toolExecutor/cwd` 透传；
+  - 已为 `ProcessRunner` 的超时参数增加下限保护（`max(timeoutMs, 1)`），消除负值转换风险。
+- 复核验证通过：
+  - `swift test --filter AgentLoopToolExecution`
+  - `swift test --filter BuiltinReadWriteTool`
+  - `swift test --filter BashTool`
+  - `swift test --filter Agent`
+  - `swift test --filter AI`
+  - `swift test`（59/59）
+- 看板推进：
+  - `STEP-007 -> Done`
+  - `STEP-008 -> Done`
+  - `STEP-009 -> Done`
+  - `STEP-010 -> Ready`
+- 计划扩展与开工同步：
+  - 已将 `STEP-010` 状态更新为 `In Progress`；
+  - 新增后续任务单：`STEP-011` ~ `STEP-015`；
+  - 发布 `BATCH-002（STEP-011~013）`，支持下一轮批量开发。
+- `STEP-010~015` 批量评审结论：`Pass`
+  - `STEP-010`：`TranscriptRenderer` 已支持 `done/failed + summary`，并通过混排与多 pending 场景测试；
+  - `STEP-011`：`AgentEvent.toolExecutionEnd` 新增 `summary` 透传，`AgentLoop` 摘要生成（首行/80 字截断/空输出回退）已落地；
+  - `STEP-012`：`EditTool` 已实现 cwd 安全校验、首个命中替换与文件大小限制；
+  - `STEP-013`：`ls/find/grep` 已落地，包含越界拒绝、深度/数量限制与截断提示；
+  - `STEP-014`：`BackgroundTaskManager`、`bg/bg_status` 与完成通知注入链路已打通；
+  - `STEP-015`：`/model`、`/compact` 与 `SubmitResult` 分支已接入 TUI。
+- 复核验证通过：
+  - `swift test`（113/113）
+- 看板推进：
+  - `STEP-010 -> Done`
+  - `STEP-011 -> Done`
+  - `STEP-012 -> Done`
+  - `STEP-013 -> Done`
+  - `STEP-014 -> Done`
+  - `STEP-015 -> Done`
+- 下一步规划：
+  - 已新增 `STEP-016（发布前稳定性收尾）`；
+  - 目标：并发/取消/回归场景加固后进入发布准备阶段。
+- 任务扩展（新增中长期步骤）：
+  - 已新增 `STEP-017` ~ `STEP-022`；
+  - 发布 `BATCH-003（STEP-017~019）` 作为下一轮批量开发入口；
+  - 看板状态更新：`STEP-017 -> Ready`，`STEP-018~022 -> Todo`。
+- `BATCH-003` 三轮评审结论：`Pass`
+  - `STEP-017`：后台任务取消链路已具备真实终止语义，`cancelledBy` 与状态收敛可观测；
+  - `STEP-018`：工具错误模型已统一（`code/message/hint`），常见缺参/越界/执行失败路径输出收敛；
+  - `STEP-019`：并行执行策略已支持 `.sequential/.parallel`，并行结果按 source order 回写，单点失败不短路整轮。
+- `BATCH-003 v2` 阻塞项（已修复）：
+  - `Agent.continue()` 的 queued 分支未透传 `toolExecutionMode`，导致 mode 切换在该入口失效。
+- `BATCH-003 v3` 修复确认：
+  - 已补齐 queued 分支 `toolExecutionMode` 透传，`Agent` 三处 `AgentLoopConfig` 组装点一致；
+  - 并行验收测试通过：`testMultipleToolCallsParallelSourceOrderStable`、`testParallelToolFailureDoesNotShortCircuit`；
+  - 长链路稳定性测试通过：`testLongChainPromptToolBgContinueFinal`。
+- 复核验证通过：
+  - `swift test --filter AgentLoopToolExecutionTests`
+  - `swift test --filter AgentStabilityTests/testSteerMultipleMessagesConsumedByContinue`
+  - `swift test --filter AgentStabilityTests/testLongChainPromptToolBgContinueFinal`
+  - `swift test --filter Agent`
+  - `swift test --filter AI`
+  - `swift test`（124/124）
+- `STEP-016` 评审结论：`Pass`
+  - 新增 `testBgNotificationWhileStreamingQueuesMessage`：验证 bg 通知在 streaming 期间正确入队，无崩溃/双终止；
+  - 新增 `testBgNotificationWhenIdleAutoContinues`：验证 idle 时 bg 通知自动触发 continue，链路完整；
+  - 新增 `testSlashCommandDoesNotAffectSteerQueue`：验证 streaming 期间 slash 命令正常返回 feedback，不丢 steer 队列；
+  - 新增 `testMultipleSlashCommandsDuringStreaming`：验证多条 slash 命令在 streaming 期间均可正常执行；
+  - 新增 `testSlashCommandInterleavedWithSteerMessages`：验证 idle 期间 steer 入队后 slash 命令不干扰队列。
+- `STEP-020` 评审结论：`Pass`
+  - 新增 `/help` 命令：列出所有可用 slash 命令及其用途；
+  - `TranscriptRenderer` 新增 `pendingToolCount` 与渲染端二次截断（120 字 + "..."），防御超长 summary 破坏 TUI；
+  - `CodingTUI` 底部状态栏：`model | streaming/idle | N tools pending`；
+  - 未知命令提示更新为 `"Available: /help, /model, /compact, /exit"`。
+- `STEP-021` 评审结论：`Pass`
+  - 新增 `ModelStore`：JSON 持久化到 `~/.config/forgeloop/model.json`，`load/save/clear` 三接口；
+  - 启动优先级：`resolveAgentAuth()` 先尝试 `ModelStore.load()`，失败回退默认 `faux-coding-model`；
+  - 坏配置容错：损坏/不完整 JSON 返回 `nil`，不阻塞启动；
+  - `/model <id>` 切换成功后自动 `modelStore.save()` 写入；
+  - `PromptController` 新增 `modelStore` 注入点（可选）。
+- `STEP-020/021 v2` 修复结论：`Pass`
+  - CLI `--model <id>` 参数已落地：`main.swift` 支持 `--model` flag 解析，`ForgeLoop.runCodingTUI` 透传 `modelOverride`；
+  - `resolveAgentAuth(modelOverride:)` 三优先级已实现：CLI override > ModelStore.load() > default fallback；
+  - `CodingTUI` 状态栏与顶部标题改为读取 `agent.state.model` 实时值，不再使用启动时的固定 `modelLabel`；
+  - 新增 `labelForModel(_:)` 纯函数（可测试），默认模型显示 `"local scaffold"`，自定义模型显示 `"name (id)"`；
+  - 新增 `AuthAndLabelTests` 6 个用例：CLI 优先级、default 回退、`labelForModel`、模型切换状态变更。
+- 复核验证通过：
+  - `swift test --filter ModelStoreTests`（6/6）
+  - `swift test --filter SlashCommandsTests`（11/11）
+  - `swift test --filter TranscriptRendererTests`（10/10）
+  - `swift test --filter AgentStabilityTests`（7/7）
+  - `swift test --filter PromptControllerTests`（7/7）
+  - `swift test --filter AI`（9/9）
+  - `swift test`（140/140）
+- `STEP-022` 评审结论：`Pass`
+  - 发布 checklist 已落地：`docs/release/RELEASE-CHECKLIST.md`，包含版本策略（patch/minor/major）、必跑命令、文档同步项、commit message 模板、tag 规范、发布顺序；
+  - 新增 `Scripts/release-check.sh`：只读检查脚本，6 项检查均不触发编译或测试执行：
+    1. git 工作区是否 clean；2. 必需文件存在性；3. build 产物是否存在（不编译）；4. 测试源文件数量；5. TODO/FIXME 标记；6. 测试用例数量（grep 统计，不编译）；
+  - 脚本运行结果：9 PASS / 1 WARN（工作区有未提交更改，为本次新增文件，预期）/ 0 FAIL；
+  - 修复 `set -e` 与 `grep` 空匹配退出码冲突（grep 无匹配返回 1 会导致 bash `-e` 提前终止，已用 `|| true` 包裹）。
+- 复核验证通过：
+  - `swift test`（146/146）
+  - `./Scripts/release-check.sh`（5 PASS, 1 WARN, 0 FAIL）
+- 看板推进：
+  - `STEP-016 -> Done`
+  - `STEP-020 -> Done`
+  - `STEP-021 -> Done`
+  - `STEP-022 -> Done`
+
+- `2026-04-22` 兼容性热修：`DeepSeek chat.completions`
+  - 新增 `OpenAIChatCompletionsProvider`（`api = openai-chat-completions`），对齐 OpenAI-compatible `POST /v1/chat/completions` SSE 增量协议；
+  - `registerBuiltins` 同时注册 `openai-responses` 与 `openai-chat-completions`，并支持 `DEEPSEEK_API_KEY` 作为兼容密钥来源；
+  - 修复 UI 可观测性：assistant 空文本错误会渲染 `[error] ...`，便于定位 provider/鉴权/协议问题；
+  - 修复状态栏收敛：`.agentEnd` 时即时回写 `isStreaming=false`，避免出现“已结束但状态栏仍显示 streaming”的假象。
