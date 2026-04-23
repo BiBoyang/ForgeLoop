@@ -88,18 +88,18 @@ final class TranscriptRendererToolResultTests: XCTestCase {
         let renderer = TranscriptRenderer()
 
         // First assistant message
-        renderer.apply(.messageStart(message: .assistant(text: "", errorMessage: nil)))
-        renderer.apply(.messageUpdate(message: .assistant(text: "Here is the result:", errorMessage: nil)))
-        renderer.apply(.messageEnd(message: .assistant(text: "Here is the result:", errorMessage: nil)))
+        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
+        renderer.apply(.messageUpdate(message: .assistant(text: "Here is the result:", thinking: nil, errorMessage: nil)))
+        renderer.apply(.messageEnd(message: .assistant(text: "Here is the result:", thinking: nil, errorMessage: nil)))
 
         // Tool execution
         renderer.apply(.toolExecutionStart(toolCallId: "tc-7", toolName: "read", args: "{}"))
         renderer.apply(.toolExecutionEnd(toolCallId: "tc-7", toolName: "read", isError: false, summary: "data"))
 
         // Second assistant message
-        renderer.apply(.messageStart(message: .assistant(text: "", errorMessage: nil)))
-        renderer.apply(.messageUpdate(message: .assistant(text: "Done", errorMessage: nil)))
-        renderer.apply(.messageEnd(message: .assistant(text: "Done", errorMessage: nil)))
+        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
+        renderer.apply(.messageUpdate(message: .assistant(text: "Done", thinking: nil, errorMessage: nil)))
+        renderer.apply(.messageEnd(message: .assistant(text: "Done", thinking: nil, errorMessage: nil)))
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("Here is the result:"))

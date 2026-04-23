@@ -34,13 +34,38 @@
 | STEP-021 | 模型管理与配置持久化（最小） | Done | 你 | ModelStore JSON 持久化 + 启动优先级 + 坏配置容错，全量 140/140 绿 |
 | STEP-022 | 发布收尾与版本流程准备 | Done | 你 | checklist + release-check.sh 已落地，146/146 绿 |
 
+## Phase 3（已完成：TUI 内核升级与产品化闭环）
+
+| Step ID | 标题 | 状态 | 负责人 | 备注 |
+|---|---|---|---|---|
+| STEP-023 | TUI 渲染内核升级（inline retained-mode） | Done | 你 | `023A/023B` 已通过：inline anchor、shrink/resize/cursor、non-TTY、legacy 回滚 |
+| STEP-024 | 输入链路重构（raw stdin + keybinding） | Done | 你 | `024A/024B` 已通过：raw stdin、ESC flush、上下键、bracketed paste、扩展映射 |
+| STEP-025 | 组件化布局落地（Header/Transcript/Status/Queue/Input） | Done | 你 | 五段布局已通过：Header/Transcript/Queue/Status/Input |
+| STEP-026 | Transcript 语义增强 | Done | 你 | thinking 区分渲染、toolCall 去重、通知折叠、tool result 多行索引修复 |
+| STEP-027 | 登录与鉴权闭环（可商用门槛） | Done | 你 | `forgeloop login` + CredentialStore + 环境变量回退 + 诊断错误闭环 |
+| STEP-028 | 测试与性能门禁 | Done | 你 | `028A` 基线 + `028B` 门禁收口（non-blocking 阶段） |
+
+## Phase 3 建议执行顺序（V2）
+
+1. `STEP-028A`：建立改造前基线（性能 + 回归快照）
+2. `STEP-023A`：最小 inline retained-mode 渲染闭环
+3. `STEP-024A`：最小输入闭环（Enter/Esc/Ctrl-C + ESC flush）
+4. `STEP-025`：薄布局落地（Transcript/Status/Input）
+5. `STEP-023B`：渲染补强（shrink/resize/cursor marker）
+6. `STEP-024B`：输入补强（上下键/bracketed paste/扩展 keybinding）
+7. `STEP-026`：Transcript 语义增强
+8. `STEP-027`：登录与鉴权闭环
+9. `STEP-028B`：CI 门禁与性能阈值收口
+
 ## 使用方式
 - 你开始一个 step 前先发：`开始 STEP-0XX`
 - 批量执行可发：`开始 BATCH-001`（一次做 `STEP-007~009`）
 - 批量执行可发：`开始 BATCH-002`（一次做 `STEP-011~013`）
 - 批量执行可发：`开始 BATCH-003`（一次做 `STEP-017~019`）
+- 批量执行可发：`开始 BATCH-004`（一次做 `STEP-023~025`）
 - 你开发完后发：`完成 STEP-0XX，求 review`
 - 批量开发完后发：`完成 BATCH-001，求 review`
 - 批量开发完后发：`完成 BATCH-002，求 review`
 - 批量开发完后发：`完成 BATCH-003，求 review`
+- 批量开发完后发：`完成 BATCH-004，求 review`
 - 我评审通过后将状态改为 `Done`，并释放下一个 `Ready`

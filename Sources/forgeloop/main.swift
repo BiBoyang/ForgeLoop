@@ -56,7 +56,7 @@ struct ForgeLoopCLI {
 
         usage:
           forgeloop [--model <id>]  launch coding tui scaffold
-          forgeloop login            login scaffold
+          forgeloop login            save API key to credentials
           forgeloop --help           show help
 
         tip:

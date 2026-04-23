@@ -29,9 +29,26 @@ swift test --filter Cli
 
 # 3) Build 验证
 swift build
+
+# 4) STEP-028B: 自动门禁脚本（non-blocking 阶段）
+./Scripts/release-check.sh
 ```
 
 期望：全部通过，0 failures。
+
+## STEP-028B 性能门禁
+
+- 性能基线：`Tests/ForgeLoopCliTests/PerformanceBaselineTests.swift`（仅记录，不阻断）
+- 性能门禁：`Tests/ForgeLoopCliTests/PerformanceGateTests.swift`（阈值检查，non-blocking）
+- 阈值策略：
+  - 当前 `thresholdFactor = 2.0`（允许 200% 偏差，non-blocking）
+  - 基线稳定后逐步收紧至 `1.1`（10% 回退告警，blocking）
+- 关键指标：
+  - 小帧首帧渲染 < 20 μs
+  - 中帧首帧渲染 < 100 μs
+  - 大帧首帧渲染 < 20 ms
+  - TranscriptRenderer.apply < 20 μs
+  - steer 入队 < 1 ms
 
 ---
 

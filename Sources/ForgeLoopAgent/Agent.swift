@@ -13,6 +13,7 @@ public final class Agent: @unchecked Sendable {
 
     public var apiKeyResolver: (@Sendable (String) async -> String?)?
     public var toolExecutor: ToolExecutor?
+    public var backgroundTaskManager: BackgroundTaskManager?
     public var cwd: String
     public var toolExecutionMode: ToolExecutionMode = .sequential
 

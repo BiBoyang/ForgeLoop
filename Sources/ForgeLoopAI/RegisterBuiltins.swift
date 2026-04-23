@@ -3,7 +3,8 @@ import Foundation
 @discardableResult
 public func registerBuiltins(
     sourceId: String = "forgeloop-replica-builtins",
-    environment: [String: String] = ProcessInfo.processInfo.environment
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    storedAPIKey: String? = nil
 ) async -> [String] {
     let faux = FauxProvider()
     await APIRegistry.shared.register(faux, sourceId: sourceId)
@@ -11,7 +12,8 @@ public func registerBuiltins(
 
     let openAIKey = environment["OPENAI_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines)
     let deepSeekKey = environment["DEEPSEEK_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let compatibleKey = [openAIKey, deepSeekKey].compactMap { $0 }.first { !$0.isEmpty }
+    let storedKey = storedAPIKey?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let compatibleKey = [storedKey, openAIKey, deepSeekKey].compactMap { $0 }.first { !$0.isEmpty }
 
     if
         let apiKey = compatibleKey,

@@ -162,3 +162,117 @@
   - `registerBuiltins` 同时注册 `openai-responses` 与 `openai-chat-completions`，并支持 `DEEPSEEK_API_KEY` 作为兼容密钥来源；
   - 修复 UI 可观测性：assistant 空文本错误会渲染 `[error] ...`，便于定位 provider/鉴权/协议问题；
   - 修复状态栏收敛：`.agentEnd` 时即时回写 `isStreaming=false`，避免出现“已结束但状态栏仍显示 streaming”的假象。
+
+## 2026-04-23
+- Phase 3 规划已落地到正式文档：
+  - 看板新增 `STEP-023` ~ `STEP-028`（`docs/03-Step看板.md`）；
+  - 新增任务单：`docs/steps/STEP-023.md` ~ `docs/steps/STEP-028.md`。
+- 状态初始化：
+  - `STEP-023 -> Ready`
+  - `STEP-024~028 -> Todo`
+- 规划重点：
+  - TUI inline retained-mode 渲染内核；
+  - raw stdin + keybinding 输入链路；
+  - 组件化布局与 transcript 语义增强；
+  - login/auth 闭环；
+  - 测试与性能门禁。
+- Phase 3 执行策略已升级为 V2（效率优化）：
+  - 前置 `STEP-028A` 建立基线，再进入核心改造；
+  - `STEP-023/024` 均拆分为 A/B 两阶段（先最小闭环，后补强）；
+  - `STEP-025` 采用薄布局策略，控制改单步跨度；
+  - `STEP-027` 后置，避免与 TUI 主链互相阻塞；
+  - `STEP-028B` 作为收口门禁，先趋势记录再逐步阈值阻断。
+- `STEP-023` 规格已按外部评审收敛（P0）：
+  - 核心问题从”全屏清屏”改为”绝对定位覆盖顶部”；
+  - 明确 inline ANSI 策略（相对回位/区域清理/重绘）；
+  - 补充回滚机制（`RenderStrategy` + 环境变量开关）；
+  - 补充 resize/折行预算、非 TTY 降级、手工验收要求；
+  - 明确 I/O 不在锁内执行（锁仅保护状态快照）。
+
+- `STEP-028A` 改造前基线采集完成：
+  - 新增 `Tests/ForgeLoopCliTests/PerformanceBaselineTests.swift`：13 个性能测试用例，覆盖 3 类指标；
+  - **渲染耗时**：小/中/大帧首帧与增量渲染、`TranscriptRenderer.apply()` 独立耗时；
+    - 关键数据：120 行大帧首帧 avg=0.011 ms, p95=0.011 ms；transcript-apply avg=0.004 ms；
+  - **输入延迟**：idle-prompt 端到端 avg=138.103 ms（含 faux 完整生命周期）；streaming-steer 入队 avg=0.002 ms；
+  - **长输出吞吐**：纯 Renderer 3,787,290 chars/sec；完整 pipeline 1,512,669 chars/sec；
+  - 基线文档落盘：`docs/baseline/BASELINE-028A.md`；
+  - 最小回归命令集固化：5 条命令（性能基线 + CLI/Agent/AI/全量回归）；
+  - 基线结果可复现：同命令同环境可再次得到同量级结果；
+  - 无业务行为变化：新增测试文件与基线文档，业务代码（TUI.swift 等）无改动。
+
+- `STEP-023A` 最小 inline retained-mode 渲染闭环完成：
+  - `Sources/ForgeLoopTUI/TUI.swift`：引入 `RenderStrategy`（`.legacyAbsolute` / `.inlineAnchor`），支持 `FORGELOOP_TUI_STRATEGY=legacy` 环境变量降级；
+  - 锁内仅保护状态快照（`previousLines`、`lastFramePhysicalRows`），锁外通过注入 `FrameWriter` 执行 stdout I/O；
+  - `inlineAnchor` 首帧：直接在当前光标处输出，不含 `ESC[2J`；
+  - `inlineAnchor` 增量：相对回位 `\rESC[<N>A` -> 逐行清理 `ESC[2K\r\n` -> 再次回位 -> 重绘新帧；
+  - 常规刷新路径禁用 `ESC[n;1H` 绝对定位；
+  - `legacyAbsolute` 保留原行为（清屏+全量绘制），作为可执行降级方案；
+  - 新增 `Tests/ForgeLoopCliTests/TUIRenderStrategyTests.swift`：18 个测试覆盖策略切换、首帧无清屏、增量无绝对定位、ANSI 序列精确匹配、shrink 清理、legacy 回滚、writer 注入；
+  - 范围控制：仅修改 `TUI.swift` + 新增测试文件，未提前引入 023B 的物理行预算/resize/cursor marker；
+  - 全量回归通过：`swift test` 185/185 绿。
+
+- `STEP-024A` 最小 raw stdin + keybinding 闭环完成：
+  - `Sources/ForgeLoopCli/TUIRunner.swift`：重写为 raw stdin 读取循环（`InputSource` 可注入，`StandardInputSource` 为默认）；
+  - 新增 `KeyEvent` 枚举（`.char`/`.enter`/`.escape`/`.ctrlC`/`.backspace`/`.csi`）；
+  - 最小按键解析器落地：Enter (`\r`/`\n`)、Esc (`0x1B`)、Ctrl-C (`0x03`)、Backspace (`0x7F`)、普通 ASCII 字符；
+  - 独立 ESC flush：收到 `0x1B` 后启动 50ms 超时，超时后 yield `.escape`；若超时前收到后续字节（如 `[` 开头 CSI），取消 flush 并解析 CSI；
+  - `CodingTUI.swift`：从 `readLine()` 主路径迁移到 `for await event in keyEvents`，维护输入缓冲区（字符累积/退格/Enter 提交/Esc 清空/Ctrl-C 退出）；
+  - `PromptController` 未改动，streaming 期间 steer 入队语义保持不变；
+  - 新增/重写 `Tests/ForgeLoopCliTests/TUIRunnerTests.swift`：12 个测试覆盖 Enter/Esc/Ctrl-C/Backspace/字符输入、CSI 序列解析、Esc flush 独立触发、Esc+CSI 不串扰、Esc+非 CSI 字符分片、混合序列；
+  - 范围控制：未提前引入上下键/paste/扩展 keybinding（024B 内容）；
+  - 全量回归通过：`swift test` 195/195 绿。
+
+- `STEP-024A` v2 修复（并发安全 + 终止清理）：
+  - **并发隔离**：提取 `KeyParser` actor，将 `pendingEscTask` / `continuation` 状态全部收拢到 actor 隔离域内，消除读循环与 flush 定时任务之间的数据竞争；
+  - **阻塞 read 可取消**：`StandardInputSource.readByte()` 改为非阻塞 `read(2)` + `EAGAIN` 轮询（10ms sleep），`Task.cancel()` 后可在下一个 poll 周期内干净退出；
+  - **终止语义补全**：`AsyncStream.onTermination` 同时取消 `readTask` 并通过 `await parser.terminate()` 取消 pending ESC timer，清理路径不再依赖后续输入唤醒；
+  - 新增 `Tests/ForgeLoopCliTests/TUIRunnerTests.swift` 终止路径测试 2 个：`testKeyParserTerminateCancelsPendingEsc`（验证 timer 被取消无 `.escape` 泄漏）、`testKeyParserTerminateThenNoMoreEvents`（验证终止后新字节被丢弃）；
+  - 看板修正：STEP-028 状态恢复为 In Progress（028B 待收口）；
+  - 全量回归通过：`swift test` 197/197 绿。
+
+- `STEP-025` 组件化布局（三块薄布局）完成：
+  - 新增 `Sources/ForgeLoopTUI/Layout.swift`：`Layout`（header/transcript/status/input 四段）、`LayoutConfig`（terminalHeight/showHeader）、`getTerminalSize()`（`ioctl TIOCGWINSZ`）；
+  - 新增 `Sources/ForgeLoopTUI/LayoutRenderer.swift`：`LayoutRenderer.render()` 按 Header → Transcript（动态预算）→ Status → Input 顺序渲染，保证 Status/Input 始终贴底；
+  - `CodingTUI.swift`：从直接拼 frame 迁移到"状态 → 布局 → 渲染"链路，input 缓冲区纳入 frame（`❯ \(inputBuffer)`），不再直接 echo stdout；
+  - Transcript 视口预算：`max(0, terminalHeight - header - status - input - dividers)`，过长内容自动取后缀（最新内容可见）；
+  - 范围控制：未触碰 023B/024B 内容；
+  - 新增 `Tests/ForgeLoopCliTests/LayoutRendererTests.swift`：11 个测试覆盖空布局、header 开关、transcript 预算、status/input 底部固定、零高度边界、后缀可见性；
+  - 全量回归通过：`swift test` 209/209 绿。
+
+- `STEP-025` v2 修复（补齐 Queue 区块）：
+  - `Layout.swift`：新增 `queue` 字段（五段结构：header/transcript/queue/status/input）；
+  - `LayoutRenderer.swift`：渲染顺序改为 Header → Transcript → Queue → Status → Input，Queue/Status/Input 贴底；`LayoutRenderer` 改为 `Sendable` struct（移除 `@MainActor` 约束）；
+  - `Agent.swift`：新增 `public var backgroundTaskManager: BackgroundTaskManager?`；
+  - `CodingAgentBuilder.swift`：`agent.backgroundTaskManager = bgManager`；
+  - `CodingTUI.swift`：subscribe 回调内联渲染逻辑（收敛重复代码），后台 `Task` 每秒轮询 `bgManager.status()` 更新 `queueLines`，输入/ESC/退格均触发 `renderFrame()`；
+  - `LayoutRendererTests.swift`：新增 3 个 queue 测试（`testQueueRenderedBetweenTranscriptAndStatus`、`testQueueExpansionDoesNotPushInputOffScreen`、`testEmptyQueueDoesNotConsumeRows`）；
+  - 全量回归通过：`swift test` 212/212 绿。
+
+- `STEP-023B` 评审结论：`Pass`
+  - 物理行预算（ANSI/CJK/折行）与 shrink 清理闭环；
+  - resize 后全量重绘路径与 cursor anchor 回退修复完成；
+  - non-TTY 降级、legacy 回滚、I/O 锁外执行保持成立。
+
+- `STEP-024B` 评审结论：`Pass`
+  - 输入补强已落地：上下键历史、bracketed paste、`KeyAction` 扩展映射；
+  - 修复 `ctrlC` 语义回归（退出而非清空输入）并复核通过。
+
+- `STEP-026` 评审结论：`Pass`
+  - thinking 独立渲染、toolCall 去重、tool result 多行预览与截断、通知折叠完成；
+  - 修复多行 tool result 索引偏移与通知空行占位问题，transcript 行模型稳定。
+
+- `STEP-027` 评审结论：`Pass`
+  - `forgeloop login` + `CredentialStore` 持久化闭环完成；
+  - 修复空白凭证与 env 回退优先级问题（trim + empty->nil + 可诊断错误）；
+  - ModelStore/模型切换行为保持兼容。
+
+- `STEP-028B` 评审结论：`Pass`
+  - 新增 `PerformanceGateTests` 并接入 `release-check.sh` 的 non-blocking 门禁流程；
+  - 中帧阈值从 100μs 调整到 150μs，消除抖动告警；
+  - 删除占位 gate 测试，保留 5 个有效指标门禁。
+
+- `2026-04-23` 收口复核通过：
+  - `swift test --filter PerformanceGateTests`（5 tests, 0 failures）；
+  - `swift test --filter Agent`（91 tests, 0 failures）；
+  - `swift test --filter AI`（13 tests, 0 failures）；
+  - `./Scripts/release-check.sh`：仅剩 `git working tree dirty` 警告，符合开发中预期。

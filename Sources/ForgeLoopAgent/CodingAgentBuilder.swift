@@ -44,6 +44,7 @@ public func makeCodingAgent(_ config: CodingAgentConfig) async -> Agent {
         cwd: config.cwd
     )
     agent.toolExecutionMode = config.toolExecutionMode
+    agent.backgroundTaskManager = bgManager
     agent.setupBackgroundNotifications(manager: bgManager)
     return agent
 }

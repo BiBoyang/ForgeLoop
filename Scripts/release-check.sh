@@ -1,6 +1,11 @@
 #!/bin/bash
 # Release check script — read-only, no destructive actions
 # Usage: ./Scripts/release-check.sh
+#
+# STEP-028B: CI 门禁收口
+# - 关键回归测试（non-blocking：失败时 warn）
+# - 性能门禁测试（non-blocking：失败时 warn）
+# - 文件存在性/git 状态（blocking：失败时 fail）
 
 set -euo pipefail
 
@@ -12,11 +17,23 @@ log_pass() { echo "  [PASS] $1"; PASS=$((PASS + 1)); }
 log_warn() { echo "  [WARN] $1"; WARN=$((WARN + 1)); }
 log_fail() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
 
+run_test_nonblocking() {
+    local label="$1"
+    local filter="$2"
+    echo ""
+    echo "[test/$label] Running swift test --filter $filter ..."
+    if swift test --filter "$filter" >/dev/null 2>&1; then
+        log_pass "$label tests passed"
+    else
+        log_warn "$label tests failed (non-blocking for 028B)"
+    fi
+}
+
 echo "=== ForgeLoop Release Check ==="
 echo ""
 
 # 1) Git workspace clean
-echo "[1/6] Checking git workspace..."
+echo "[1/8] Checking git workspace..."
 if git diff --quiet && git diff --cached --quiet; then
     log_pass "Working tree is clean"
 else
@@ -25,7 +42,7 @@ fi
 
 # 2) Required files exist
 echo ""
-echo "[2/6] Checking required files..."
+echo "[2/8] Checking required files..."
 required_files=(
     "Package.swift"
     "Sources/forgeloop/main.swift"
@@ -43,7 +60,7 @@ done
 
 # 3) Check build artifact exists (read-only, does not trigger compilation)
 echo ""
-echo "[3/6] Checking build artifact..."
+echo "[3/8] Checking build artifact..."
 if [[ -f ".build/debug/forgeloop" ]]; then
     log_pass "Build artifact exists (.build/debug/forgeloop)"
 else
@@ -52,7 +69,7 @@ fi
 
 # 4) Check test sources exist (read-only, does not run tests)
 echo ""
-echo "[4/6] Checking test sources..."
+echo "[4/8] Checking test sources..."
 test_files=$(find Tests -name "*Tests.swift" 2>/dev/null | wc -l | tr -d ' ')
 if [[ "$test_files" -gt 0 ]]; then
     log_pass "Test sources found: $test_files file(s)"
@@ -62,7 +79,7 @@ fi
 
 # 5) Check for TODO markers in source
 echo ""
-echo "[5/6] Checking for TODO/FIXME markers..."
+echo "[5/8] Checking for TODO/FIXME markers..."
 todo_count=$(grep -ri "TODO\|FIXME" Sources/ --include="*.swift" 2>/dev/null | wc -l | tr -d ' ' || true)
 if [[ "$todo_count" -eq 0 ]]; then
     log_pass "No TODO/FIXME markers in Sources/"
@@ -72,13 +89,25 @@ fi
 
 # 6) Count test cases (read-only grep, no compilation)
 echo ""
-echo "[6/6] Counting test cases..."
+echo "[6/8] Counting test cases..."
 test_count=$(grep -rh "func test" Tests/ --include="*.swift" 2>/dev/null | wc -l | tr -d ' ' || true)
 if [[ "$test_count" -ge 100 ]]; then
     log_pass "Test cases: $test_count (>= 100)"
 else
     log_warn "Test cases: $test_count (< 100)"
 fi
+
+# 7) STEP-028B: 关键回归测试（non-blocking）
+echo ""
+echo "[7/8] STEP-028B: Running regression gates (non-blocking)..."
+run_test_nonblocking "ForgeLoopCli" "ForgeLoopCliTests"
+run_test_nonblocking "Agent" "Agent"
+run_test_nonblocking "AI" "AI"
+
+# 8) STEP-028B: 性能门禁测试（non-blocking）
+echo ""
+echo "[8/8] STEP-028B: Running performance gates (non-blocking)..."
+run_test_nonblocking "Performance-Gate" "PerformanceGateTests"
 
 # Manual reminder
 echo ""
