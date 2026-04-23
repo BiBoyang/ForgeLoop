@@ -127,4 +127,5 @@ docs: update release checklist for v0.1.2
 
 | 版本 | 日期 | 备注 |
 |---|---|---|
+| v0.1.1 | 2026-04-23 | Phase 3（STEP-023~028）收口完成，性能门禁与发布脚本联动稳定 |
 | v0.1.0 | 2026-04-22 | 首次发布，STEP-001 ~ STEP-022 全部完成，146 tests green |
