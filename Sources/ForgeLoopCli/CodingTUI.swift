@@ -184,7 +184,7 @@ func runCodingTUIInternal(
         guard runner.tui.isTTY else {
             var fullLayout = Layout()
             fullLayout.header = headerLines
-            fullLayout.transcript = renderer.lines.all
+            fullLayout.transcript = renderer.transcriptLines
             fullLayout.pinnedTranscriptRange = renderer.preferredPinnedRange
             fullLayout.queue = queueLines
             fullLayout.status = [Style.dimmed(statusBar)]
@@ -206,7 +206,7 @@ func runCodingTUIInternal(
             }
 
             let appendedTranscriptLines = transcriptAppendState.consume(
-                transcript: renderer.lines.all,
+                transcript: renderer.transcriptLines,
                 activeRange: renderer.activeStreamingRange
             )
             if !appendedTranscriptLines.isEmpty {
@@ -217,7 +217,7 @@ func runCodingTUIInternal(
 
         if appendModeActive {
             let remainingTranscriptLines = transcriptAppendState.consume(
-                transcript: renderer.lines.all,
+                transcript: renderer.transcriptLines,
                 activeRange: nil
             )
             if !remainingTranscriptLines.isEmpty {
@@ -281,7 +281,7 @@ func runCodingTUIInternal(
             guard runner.tui.isTTY else {
                 var fullLayout = Layout()
                 fullLayout.header = headerLines
-                fullLayout.transcript = renderer.lines.all
+                fullLayout.transcript = renderer.transcriptLines
                 fullLayout.pinnedTranscriptRange = renderer.preferredPinnedRange
                 fullLayout.queue = queueLines
                 fullLayout.status = [Style.dimmed(statusBar)]
@@ -309,7 +309,7 @@ func runCodingTUIInternal(
                 }
 
                 let appendedTranscriptLines = transcriptAppendState.consume(
-                    transcript: renderer.lines.all,
+                    transcript: renderer.transcriptLines,
                     activeRange: renderer.activeStreamingRange
                 )
                 if !appendedTranscriptLines.isEmpty {
@@ -320,7 +320,7 @@ func runCodingTUIInternal(
 
             if appendModeActive {
                 let remainingTranscriptLines = transcriptAppendState.consume(
-                    transcript: renderer.lines.all,
+                    transcript: renderer.transcriptLines,
                     activeRange: nil
                 )
                 if !remainingTranscriptLines.isEmpty {

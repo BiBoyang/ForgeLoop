@@ -375,7 +375,7 @@ final class PerformanceBaselineTests: XCTestCase {
             renderer.applyCore(.blockUpdate(id: "stream", lines: [text]))
 
             // 模拟完整 pipeline：renderer -> frame -> TUI
-            let frame = header + renderer.lines.all + ["", statusBar]
+            let frame = header + renderer.transcriptLines + ["", statusBar]
             tui.requestRender(lines: frame)
         }
         renderer.applyCore(.blockEnd(id: "stream", lines: [String(repeating: "a", count: throughputCharsPerUpdate)], footer: nil))

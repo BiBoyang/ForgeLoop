@@ -6,7 +6,7 @@ import Foundation
 /// 物理行预算与清屏行数均基于逻辑行数计算，内嵌 \n 会导致低估。
 @MainActor
 public final class TranscriptRenderer {
-    public let lines: TranscriptBuffer
+    let lines: TranscriptBuffer
     private var streamingRange: Range<Int>?
     private var completedRange: Range<Int>?
     private var pendingTools: [String: Int] = [:]
@@ -35,6 +35,8 @@ public final class TranscriptRenderer {
         self.lines = TranscriptBuffer()
         self.markdownEngine = markdownEngine
     }
+
+    public var transcriptLines: [String] { lines.all }
 
     // MARK: - Core Entry Point
 
@@ -204,18 +206,18 @@ public final class TranscriptRenderer {
 }
 
 @MainActor
-public final class TranscriptBuffer {
-    public init() {}
+final class TranscriptBuffer {
+    init() {}
 
-    public private(set) var all: [String] = []
+    private(set) var all: [String] = []
 
-    public var count: Int { all.count }
+    var count: Int { all.count }
 
-    public func append(_ line: String) {
+    func append(_ line: String) {
         all.append(line)
     }
 
-    public func replace(range: Range<Int>, with lines: [String]) {
+    func replace(range: Range<Int>, with lines: [String]) {
         let lower = max(0, min(range.lowerBound, all.count))
         let upper = max(lower, min(range.upperBound, all.count))
         all.replaceSubrange(lower..<upper, with: lines)

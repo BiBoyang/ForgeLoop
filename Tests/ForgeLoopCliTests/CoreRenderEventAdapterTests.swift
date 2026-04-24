@@ -274,7 +274,7 @@ private func render(agentEvents: [AgentEvent]) -> [String] {
             renderer.applyCore(core)
         }
     }
-    return renderer.lines.all
+    return renderer.transcriptLines
 }
 
 @MainActor
@@ -283,7 +283,7 @@ private func render(coreEvents: [CoreRenderEvent]) -> [String] {
     for event in coreEvents {
         renderer.applyCore(event)
     }
-    return renderer.lines.all
+    return renderer.transcriptLines
 }
 
 private func assistant(text: String = "", thinking: String? = nil, errorMessage: String? = nil) -> AssistantMessage {

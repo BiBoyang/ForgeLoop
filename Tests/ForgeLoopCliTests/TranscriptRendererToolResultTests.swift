@@ -10,7 +10,7 @@ final class TranscriptRendererToolResultTests: XCTestCase {
         renderer.applyCore(.operationStart(id: "tc-1", header: "● read({\"path\":\"file.txt\"})", status: "⎿ running..."))
         renderer.applyCore(.operationEnd(id: "tc-1", isError: false, result: "hello world"))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("● read({\"path\":\"file.txt\"})"))
         XCTAssertTrue(lines.contains("⎿ done: hello world"))
         XCTAssertFalse(lines.contains("⎿ running..."))
@@ -23,7 +23,7 @@ final class TranscriptRendererToolResultTests: XCTestCase {
         renderer.applyCore(.operationStart(id: "tc-2", header: "● read({\"path\":\"missing\"})", status: "⎿ running..."))
         renderer.applyCore(.operationEnd(id: "tc-2", isError: true, result: "File not found"))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("⎿ failed: File not found"))
         XCTAssertFalse(lines.contains("⎿ running..."))
     }
@@ -35,7 +35,7 @@ final class TranscriptRendererToolResultTests: XCTestCase {
         renderer.applyCore(.operationStart(id: "tc-3", header: "● write({})", status: "⎿ running..."))
         renderer.applyCore(.operationEnd(id: "tc-3", isError: false, result: nil))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("⎿ done"))
         XCTAssertFalse(lines.contains("⎿ done: \"\""))
     }
@@ -47,7 +47,7 @@ final class TranscriptRendererToolResultTests: XCTestCase {
         renderer.applyCore(.operationStart(id: "tc-4", header: "● bash({})", status: "⎿ running..."))
         renderer.applyCore(.operationEnd(id: "tc-4", isError: false, result: "(no output)"))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("⎿ done: (no output)"))
     }
 
@@ -59,7 +59,7 @@ final class TranscriptRendererToolResultTests: XCTestCase {
         renderer.applyCore(.operationStart(id: "tc-5", header: "● read({})", status: "⎿ running..."))
         renderer.applyCore(.operationEnd(id: "tc-5", isError: false, result: longSummary))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("⎿ done: \(longSummary)"))
     }
 
@@ -74,7 +74,7 @@ final class TranscriptRendererToolResultTests: XCTestCase {
         renderer.applyCore(.operationEnd(id: "a", isError: false, result: "file content"))
         renderer.applyCore(.operationEnd(id: "b", isError: true, result: "permission denied"))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("⎿ done: file content"))
         XCTAssertTrue(lines.contains("⎿ failed: permission denied"))
         XCTAssertTrue(lines.contains("⎿ running..."))
@@ -97,7 +97,7 @@ final class TranscriptRendererToolResultTests: XCTestCase {
         updateAssistant(renderer, text: "Done")
         endAssistant(renderer, text: "Done")
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("Here is the result:"))
         XCTAssertTrue(lines.contains("⎿ done: data"))
         XCTAssertTrue(lines.contains("Done"))
@@ -113,7 +113,7 @@ final class TranscriptRendererToolResultTests: XCTestCase {
         renderer.applyCore(.operationStart(id: "tc-8", header: "● bash({})", status: "⎿ running..."))
         renderer.applyCore(.operationEnd(id: "tc-8", isError: false, result: "first line"))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("⎿ done: first line"))
     }
 }

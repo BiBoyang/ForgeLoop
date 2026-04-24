@@ -16,7 +16,7 @@ final class StreamingTranscriptIntegrationTests: XCTestCase {
                 renderer.applyCore(coreEvent)
             }
             let chunk = appendState.consume(
-                transcript: renderer.lines.all,
+                transcript: renderer.transcriptLines,
                 activeRange: renderer.activeStreamingRange
             )
             if !chunk.isEmpty {

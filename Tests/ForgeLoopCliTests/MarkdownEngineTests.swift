@@ -134,7 +134,7 @@ final class TranscriptRendererMarkdownTests: XCTestCase {
             footer: nil
         ))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains(where: { $0.contains("💭 preparing table") }))
         XCTAssertTrue(lines.contains("┌───┬───┐"))
         XCTAssertTrue(lines.contains("│ a │ b │"))

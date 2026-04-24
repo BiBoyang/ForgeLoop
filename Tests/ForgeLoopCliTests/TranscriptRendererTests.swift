@@ -12,7 +12,7 @@ final class TranscriptRendererTests: XCTestCase {
         updateAssistant(renderer, text: "second version")
         endAssistant(renderer, text: "second version")
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("second version"))
         XCTAssertFalse(lines.contains("first version"))
     }
@@ -26,7 +26,7 @@ final class TranscriptRendererTests: XCTestCase {
         updateAssistant(renderer, text: "only one")
         endAssistant(renderer, text: "only one")
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("only one"))
         XCTAssertFalse(lines.contains("line1"))
         XCTAssertFalse(lines.contains("line2"))
@@ -41,7 +41,7 @@ final class TranscriptRendererTests: XCTestCase {
         updateAssistant(renderer, text: "hello")
         endAssistant(renderer, text: "hello")
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         let blankCount = lines.filter { $0.isEmpty }.count
         XCTAssertEqual(blankCount, 1)
     }
@@ -53,7 +53,7 @@ final class TranscriptRendererTests: XCTestCase {
         renderer.applyCore(.operationStart(id: "tc-1", header: "● read_file({})", status: "⎿ running..."))
         renderer.applyCore(.operationEnd(id: "tc-1", isError: false, result: nil))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("● read_file({})"))
         XCTAssertTrue(lines.contains("⎿ done"))
         XCTAssertFalse(lines.contains("⎿ running..."))
@@ -64,7 +64,7 @@ final class TranscriptRendererTests: XCTestCase {
         renderer.applyCore(.operationStart(id: "tc-2", header: "● bad_tool({})", status: "⎿ running..."))
         renderer.applyCore(.operationEnd(id: "tc-2", isError: true, result: nil))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("● bad_tool({})"))
         XCTAssertTrue(lines.contains("⎿ failed"))
         XCTAssertFalse(lines.contains("⎿ running..."))
@@ -78,7 +78,7 @@ final class TranscriptRendererTests: XCTestCase {
         renderer.applyCore(.operationStart(id: "b", header: "● toolB(2)", status: "⎿ running..."))
         renderer.applyCore(.operationEnd(id: "a", isError: false, result: nil))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("⎿ done"))
         XCTAssertTrue(lines.contains("⎿ running..."))
         XCTAssertEqual(lines.filter { $0 == "⎿ done" }.count, 1)
@@ -93,7 +93,7 @@ final class TranscriptRendererTests: XCTestCase {
         renderer.applyCore(.operationStart(id: "tc-long", header: "● read({})", status: "⎿ running..."))
         renderer.applyCore(.operationEnd(id: "tc-long", isError: false, result: veryLong))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         let resultLine = lines.first { $0.hasPrefix("⎿ done:") }
         XCTAssertNotNil(resultLine)
         XCTAssertTrue(resultLine!.hasSuffix("..."), "Truncated summary should end with ...")
@@ -108,7 +108,7 @@ final class TranscriptRendererTests: XCTestCase {
         renderer.applyCore(.operationStart(id: "tc-short", header: "● read({})", status: "⎿ running..."))
         renderer.applyCore(.operationEnd(id: "tc-short", isError: false, result: shortSummary))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("⎿ done: \(shortSummary)"))
     }
 
@@ -141,7 +141,7 @@ final class TranscriptRendererTests: XCTestCase {
         updateAssistant(renderer, text: "one\ntwo\nthree\nfour")
         endAssistant(renderer, text: "one\ntwo\nthree\nfour")
 
-        let lines = renderer.lines.all.filter { !$0.isEmpty }
+        let lines = renderer.transcriptLines.filter { !$0.isEmpty }
         XCTAssertEqual(lines, ["one", "two", "three", "four"])
     }
 
@@ -152,7 +152,7 @@ final class TranscriptRendererTests: XCTestCase {
         startAssistant(renderer)
         endAssistant(renderer, text: "", errorMessage: "OpenAI Chat Completions HTTP 404: Not Found")
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("[error] OpenAI Chat Completions HTTP 404: Not Found"))
     }
 
@@ -163,7 +163,7 @@ final class TranscriptRendererTests: XCTestCase {
         startAssistant(renderer)
         endAssistant(renderer, text: "result", thinking: "I should think about this")
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("💭 I should think about this"))
         XCTAssertTrue(lines.contains("result"))
     }
@@ -174,7 +174,7 @@ final class TranscriptRendererTests: XCTestCase {
         startAssistant(renderer)
         endAssistant(renderer, text: "ok", thinking: thinking)
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("💭 line one …"))
         XCTAssertFalse(lines.contains("line two"))
     }
@@ -184,7 +184,7 @@ final class TranscriptRendererTests: XCTestCase {
         startAssistant(renderer)
         endAssistant(renderer, text: "plain")
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("plain"))
         XCTAssertFalse(lines.contains(where: { $0.hasPrefix("💭") }))
     }
@@ -197,7 +197,7 @@ final class TranscriptRendererTests: XCTestCase {
         renderer.applyCore(.operationStart(id: "tc-ml", header: "● bash({})", status: "⎿ running..."))
         renderer.applyCore(.operationEnd(id: "tc-ml", isError: false, result: multiLine))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         let resultLines = lines.filter { $0.hasPrefix("⎿ done:") }
         XCTAssertEqual(resultLines.count, 4, "Should be 4 logical lines (3 preview + ...)")
         XCTAssertTrue(resultLines[0].contains("line1"))
@@ -213,7 +213,7 @@ final class TranscriptRendererTests: XCTestCase {
         renderer.applyCore(.operationStart(id: "tc-vl", header: "● read({})", status: "⎿ running..."))
         renderer.applyCore(.operationEnd(id: "tc-vl", isError: false, result: veryLong))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         let resultLines = lines.filter { $0.hasPrefix("⎿ done:") }
         XCTAssertEqual(resultLines.count, 4, "Should be 4 logical lines (3 preview + ...)")
         XCTAssertTrue(resultLines.last!.hasSuffix("..."))
@@ -231,7 +231,7 @@ final class TranscriptRendererTests: XCTestCase {
         renderer.applyCore(.notification(text: "third"))
         renderer.applyCore(.notification(text: "fourth"))
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         let notificationCount = lines.filter { $0.hasPrefix("▸") }.count
         XCTAssertEqual(notificationCount, 3, "Should keep only latest 3 notifications")
         XCTAssertTrue(lines.contains("▸ fourth"))
@@ -247,7 +247,7 @@ final class TranscriptRendererTests: XCTestCase {
         updateAssistant(renderer, text: "one\ntwo\nthree\nfour")
         endAssistant(renderer, text: "one\ntwo\nthree\nfour")
 
-        let lines = renderer.lines.all.filter { !$0.isEmpty }
+        let lines = renderer.transcriptLines.filter { !$0.isEmpty }
         XCTAssertEqual(lines, ["one", "two", "three", "four"])
     }
 
@@ -258,7 +258,7 @@ final class TranscriptRendererTests: XCTestCase {
         startAssistant(renderer)
         endAssistant(renderer, text: "I will use a tool")
 
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("I will use a tool"))
         XCTAssertFalse(lines.contains(where: { $0.contains("toolCall") || $0.contains("arguments") }))
     }
@@ -321,7 +321,7 @@ final class TranscriptRendererTests: XCTestCase {
 
         // The block was rendered as "hello world" + empty separator = 2 lines
         // But the pinned range tracks the original block position
-        let lines = renderer.lines.all
+        let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains("hello world"))
     }
 
