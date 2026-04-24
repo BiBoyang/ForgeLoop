@@ -2,7 +2,7 @@ import XCTest
 @testable import ForgeLoopAI
 @testable import ForgeLoopAgent
 @testable import ForgeLoopCli
-@testable import ForgeLoopTUI
+import ForgeLoopTUI
 
 @MainActor
 final class StreamingTranscriptIntegrationTests: XCTestCase {

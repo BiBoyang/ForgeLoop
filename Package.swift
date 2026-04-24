@@ -9,9 +9,11 @@ let package = Package(
     products: [
         .library(name: "ForgeLoopAI", targets: ["ForgeLoopAI"]),
         .library(name: "ForgeLoopAgent", targets: ["ForgeLoopAgent"]),
-        .library(name: "ForgeLoopTUI", targets: ["ForgeLoopTUI"]),
         .library(name: "ForgeLoopCli", targets: ["ForgeLoopCli"]),
         .executable(name: "forgeloop", targets: ["forgeloop"]),
+    ],
+    dependencies: [
+        .package(path: "../ForgeLoopTUI"),
     ],
     targets: [
         .target(
@@ -24,12 +26,12 @@ let package = Package(
             path: "Sources/ForgeLoopAgent"
         ),
         .target(
-            name: "ForgeLoopTUI",
-            path: "Sources/ForgeLoopTUI"
-        ),
-        .target(
             name: "ForgeLoopCli",
-            dependencies: ["ForgeLoopAI", "ForgeLoopAgent", "ForgeLoopTUI"],
+            dependencies: [
+                "ForgeLoopAI",
+                "ForgeLoopAgent",
+                .product(name: "ForgeLoopTUI", package: "ForgeLoopTUI"),
+            ],
             path: "Sources/ForgeLoopCli"
         ),
         .executableTarget(
@@ -49,7 +51,12 @@ let package = Package(
         ),
         .testTarget(
             name: "ForgeLoopCliTests",
-            dependencies: ["ForgeLoopCli", "ForgeLoopAgent", "ForgeLoopAI", "ForgeLoopTUI"],
+            dependencies: [
+                "ForgeLoopCli",
+                "ForgeLoopAgent",
+                "ForgeLoopAI",
+                .product(name: "ForgeLoopTUI", package: "ForgeLoopTUI"),
+            ],
             path: "Tests/ForgeLoopCliTests"
         ),
     ],

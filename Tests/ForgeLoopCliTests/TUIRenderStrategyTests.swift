@@ -1,5 +1,5 @@
 import XCTest
-@testable import ForgeLoopTUI
+import ForgeLoopTUI
 
 /// STEP-023A TUI 渲染策略测试
 ///

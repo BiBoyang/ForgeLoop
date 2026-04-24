@@ -2,7 +2,7 @@ import XCTest
 @testable import ForgeLoopAI
 @testable import ForgeLoopAgent
 @testable import ForgeLoopCli
-@testable import ForgeLoopTUI
+import ForgeLoopTUI
 
 /// STEP-028B 性能门禁测试
 ///

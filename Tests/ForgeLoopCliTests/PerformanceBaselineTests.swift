@@ -2,7 +2,7 @@ import XCTest
 @testable import ForgeLoopAI
 @testable import ForgeLoopAgent
 @testable import ForgeLoopCli
-@testable import ForgeLoopTUI
+import ForgeLoopTUI
 
 /// STEP-028A 性能基线测试
 ///

@@ -1,5 +1,5 @@
 import XCTest
-@testable import ForgeLoopTUI
+import ForgeLoopTUI
 
 final class StreamingTranscriptAppendStateTests: XCTestCase {
     func testConsumeAppendsStablePrefixBeforeStreamingBlock() {

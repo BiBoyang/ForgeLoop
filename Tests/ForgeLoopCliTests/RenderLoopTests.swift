@@ -1,5 +1,5 @@
 import XCTest
-@testable import ForgeLoopTUI
+import ForgeLoopTUI
 
 /// 线程安全的帧收集器，用于测试 RenderLoop 的回调。
 private final class FrameCollector: @unchecked Sendable {

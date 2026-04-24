@@ -1,5 +1,5 @@
 import XCTest
-@testable import ForgeLoopTUI
+import ForgeLoopTUI
 
 @MainActor
 final class TranscriptRendererTests: XCTestCase {

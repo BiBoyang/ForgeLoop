@@ -2,7 +2,7 @@ import XCTest
 @testable import ForgeLoopAI
 @testable import ForgeLoopAgent
 @testable import ForgeLoopCli
-@testable import ForgeLoopTUI
+import ForgeLoopTUI
 
 /// AgentEvent -> CoreRenderEvent 适配行为等价测试：
 /// 同一语义输入序列下，adapter 输出与手写 core 事件输出完全一致。

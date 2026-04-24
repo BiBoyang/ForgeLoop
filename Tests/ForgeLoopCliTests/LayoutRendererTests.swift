@@ -1,5 +1,5 @@
 import XCTest
-@testable import ForgeLoopTUI
+@testable import ForgeLoopCli
 
 final class LayoutRendererTests: XCTestCase {
 
