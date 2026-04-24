@@ -56,7 +56,7 @@ final class MarkdownEngineTests: XCTestCase {
         XCTAssertFalse(lines.contains("| alice | 99 |"))
     }
 
-    func testStreamingEngineKeepsCodeFenceTableLikeTextAsPlainText() {
+    func testStreamingEngineRendersCodeFenceWithoutParsingNestedTable() {
         let engine = StreamingMarkdownEngine()
         let text = """
         ```markdown
@@ -68,13 +68,13 @@ final class MarkdownEngineTests: XCTestCase {
 
         let lines = engine.render(text: text, isFinal: true)
         XCTAssertEqual(lines, [
-            "```markdown",
-            "| a | b |",
-            "| --- | --- |",
-            "| 1 | 2 |",
-            "```",
+            "┌─ code markdown",
+            "│ | a | b |",
+            "│ | --- | --- |",
+            "│ | 1 | 2 |",
+            "└─ end code",
         ])
-        XCTAssertFalse(lines.contains(where: { $0.contains("┌") || $0.contains("│") }))
+        XCTAssertFalse(lines.contains(where: { $0.contains("│ a │") || $0.contains("┌──") }))
     }
 
     func testStreamingEngineParsesEscapedPipeInCells() {
