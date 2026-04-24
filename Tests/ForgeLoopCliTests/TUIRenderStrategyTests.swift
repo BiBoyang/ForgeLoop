@@ -147,9 +147,8 @@ final class TUIRenderStrategyTests: XCTestCase {
         XCTAssertEqual(spy.outputs.count, 1)
 
         tui.requestRender(lines: ["a", "b"])
-        // Same frame should still produce incremental output (clear + redraw)
-        // because inlineAnchor always does full region redraw for simplicity in 023A
-        XCTAssertEqual(spy.outputs.count, 2)
+        // Same frame should not emit redundant redraw output.
+        XCTAssertEqual(spy.outputs.count, 1)
     }
 
     // MARK: - 6) Legacy 路径

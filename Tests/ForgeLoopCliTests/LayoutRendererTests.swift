@@ -1,7 +1,6 @@
 import XCTest
 @testable import ForgeLoopTUI
 
-@MainActor
 final class LayoutRendererTests: XCTestCase {
 
     private var renderer: LayoutRenderer!

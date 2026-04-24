@@ -216,21 +216,21 @@ final class PerformanceBaselineTests: XCTestCase {
         XCTAssertLessThan(sample.avgMillis, 50.0, "Large streaming append baseline")
     }
 
-    /// 1.8 TranscriptRenderer.apply() 独立耗时（不含 TUI 输出）
+    /// 1.8 TranscriptRenderer.applyCore() 独立耗时（不含 TUI 输出）
     func testBaseline_TranscriptRendererApply() throws {
         let renderer = TranscriptRenderer()
         // 先构建一些 transcript 状态
-        renderer.apply(.messageStart(message: .user("Initial prompt")))
-        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageEnd(message: .assistant(text: "Response text here", thinking: nil, errorMessage: nil)))
+        renderer.applyCore(.insert(lines: [Style.user("❯ Initial prompt"), ""]))
+        renderer.applyCore(.blockStart(id: "seed"))
+        renderer.applyCore(.blockEnd(id: "seed", lines: ["Response text here"], footer: nil))
 
         let sample = measureSamples(label: "transcript-apply", iterations: renderIterations) {
-            renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-            renderer.apply(.messageUpdate(message: .assistant(text: "Updated streaming content", thinking: nil, errorMessage: nil)))
-            renderer.apply(.messageEnd(message: .assistant(text: "Final content", thinking: nil, errorMessage: nil)))
+            renderer.applyCore(.blockStart(id: "stream"))
+            renderer.applyCore(.blockUpdate(id: "stream", lines: ["Updated streaming content"]))
+            renderer.applyCore(.blockEnd(id: "stream", lines: ["Final content"], footer: nil))
         }
         print("\n[BASELINE] \(sample)")
-        XCTAssertLessThan(sample.avgMicros, 100.0, "TranscriptRenderer.apply should be sub-millisecond")
+        XCTAssertLessThan(sample.avgMicros, 100.0, "TranscriptRenderer.applyCore should be sub-millisecond")
     }
 
     // MARK: - 2) 输入延迟
@@ -325,12 +325,12 @@ final class PerformanceBaselineTests: XCTestCase {
 
         let start = DispatchTime.now().uptimeNanoseconds
 
-        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
+        renderer.applyCore(.blockStart(id: "stream"))
         for _ in 0..<throughputUpdateCount {
             let text = String(repeating: "a", count: throughputCharsPerUpdate)
-            renderer.apply(.messageUpdate(message: .assistant(text: text, thinking: nil, errorMessage: nil)))
+            renderer.applyCore(.blockUpdate(id: "stream", lines: [text]))
         }
-        renderer.apply(.messageEnd(message: .assistant(text: String(repeating: "a", count: throughputCharsPerUpdate), thinking: nil, errorMessage: nil)))
+        renderer.applyCore(.blockEnd(id: "stream", lines: [String(repeating: "a", count: throughputCharsPerUpdate)], footer: nil))
 
         let end = DispatchTime.now().uptimeNanoseconds
         let elapsedNanos = end - start
@@ -369,16 +369,16 @@ final class PerformanceBaselineTests: XCTestCase {
 
         let start = DispatchTime.now().uptimeNanoseconds
 
-        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
+        renderer.applyCore(.blockStart(id: "stream"))
         for _ in 0..<throughputUpdateCount {
             let text = String(repeating: "a", count: throughputCharsPerUpdate)
-            renderer.apply(.messageUpdate(message: .assistant(text: text, thinking: nil, errorMessage: nil)))
+            renderer.applyCore(.blockUpdate(id: "stream", lines: [text]))
 
             // 模拟完整 pipeline：renderer -> frame -> TUI
             let frame = header + renderer.lines.all + ["", statusBar]
             tui.requestRender(lines: frame)
         }
-        renderer.apply(.messageEnd(message: .assistant(text: String(repeating: "a", count: throughputCharsPerUpdate), thinking: nil, errorMessage: nil)))
+        renderer.applyCore(.blockEnd(id: "stream", lines: [String(repeating: "a", count: throughputCharsPerUpdate)], footer: nil))
 
         let end = DispatchTime.now().uptimeNanoseconds
         let elapsedNanos = end - start
@@ -468,12 +468,13 @@ final class PerformanceBaselineTests: XCTestCase {
         // transcript apply
         do {
             let renderer = TranscriptRenderer()
-            renderer.apply(.messageStart(message: .user("x")))
-            renderer.apply(.messageEnd(message: .assistant(text: "y", thinking: nil, errorMessage: nil)))
+            renderer.applyCore(.insert(lines: [Style.user("❯ x"), ""]))
+            renderer.applyCore(.blockStart(id: "seed"))
+            renderer.applyCore(.blockEnd(id: "seed", lines: ["y"], footer: nil))
             let s = measureSamples(label: "transcript-apply", iterations: renderIterations) {
-                renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-                renderer.apply(.messageUpdate(message: .assistant(text: "z", thinking: nil, errorMessage: nil)))
-                renderer.apply(.messageEnd(message: .assistant(text: "z", thinking: nil, errorMessage: nil)))
+                renderer.applyCore(.blockStart(id: "stream"))
+                renderer.applyCore(.blockUpdate(id: "stream", lines: ["z"]))
+                renderer.applyCore(.blockEnd(id: "stream", lines: ["z"], footer: nil))
             }
             samples.append(s)
             print(s.reportLine)

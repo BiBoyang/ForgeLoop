@@ -1,6 +1,6 @@
 import Foundation
 
-/// Transcript 渲染器：将 RenderEvent 转换为终端可显示的行序列。
+/// Transcript 渲染器：将 `CoreRenderEvent` 转换为终端可显示的行序列。
 ///
 /// 行模型约束：每个 transcript 元素 = 1 逻辑行，不内嵌 \n。
 /// 物理行预算与清屏行数均基于逻辑行数计算，内嵌 \n 会导致低估。
@@ -10,6 +10,7 @@ public final class TranscriptRenderer {
     private var streamingRange: Range<Int>?
     private var pendingTools: [String: Int] = [:]
     private var notificationLines: [Int] = []
+    private let markdownEngine: MarkdownEngine
 
     public var pendingToolCount: Int { pendingTools.count }
 
@@ -17,51 +18,51 @@ public final class TranscriptRenderer {
     private let maxSummaryLines = 3
     private let maxNotificationLines = 3
 
-    public init() {
+    public init(markdownEngine: MarkdownEngine = StreamingMarkdownEngine()) {
         self.lines = TranscriptBuffer()
+        self.markdownEngine = markdownEngine
     }
 
-    public func apply(_ event: RenderEvent) {
+    // MARK: - Core Entry Point
+
+    public func applyCore(_ event: CoreRenderEvent) {
         switch event {
-        case .messageStart(let message):
-            switch message {
-            case .user(let text):
-                append(Style.user("❯ " + text))
-                append("")
-            case .assistant:
-                let start = lines.count
-                streamingRange = start..<start
-            case .tool:
-                break
+        case .insert(let newLines):
+            for line in newLines {
+                append(line)
             }
 
-        case .messageUpdate(let message):
-            guard case .assistant(let text, let thinking, _) = message else { break }
-            replaceStreaming(with: renderAssistantLines(text: text, thinking: thinking))
+        case .blockStart:
+            let start = lines.count
+            streamingRange = start..<start
+            markdownEngine.reset()
 
-        case .messageEnd(let message):
-            guard case .assistant(let text, let thinking, let errorMessage) = message else { break }
-            replaceStreaming(with: renderAssistantLines(text: text, thinking: thinking))
+        case .blockUpdate(_, let newLines):
+            replaceStreaming(with: renderMarkdown(lines: newLines, isFinal: false))
+
+        case .blockEnd(_, let newLines, let footer):
+            replaceStreaming(with: renderMarkdown(lines: newLines, isFinal: true))
             streamingRange = nil
+            markdownEngine.reset()
             append("")
 
-            if text.isEmpty, let error = errorMessage {
-                let trimmed = error.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let footer = footer, !footer.isEmpty {
+                let trimmed = footer.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
                     append("[error] \(trimmed)")
                     append("")
                 }
             }
 
-        case .toolExecutionStart(let toolCallId, let toolName, let args):
-            append("● \(toolName)(\(args))")
-            append("⎿ running...")
-            pendingTools[toolCallId] = lines.count - 1
+        case .operationStart(let id, let header, let status):
+            append(header)
+            append(status)
+            pendingTools[id] = lines.count - 1
 
-        case .toolExecutionEnd(let toolCallId, _, let isError, let summary):
-            guard let lineIndex = pendingTools.removeValue(forKey: toolCallId) else { break }
+        case .operationEnd(let id, let isError, let result):
+            guard let lineIndex = pendingTools.removeValue(forKey: id) else { break }
             let prefix = isError ? "⎿ failed" : "⎿ done"
-            let previewLines = formatToolResult(summary)
+            let previewLines = formatToolResult(result)
             let resultLines: [String]
             if previewLines.isEmpty {
                 resultLines = [prefix]
@@ -79,22 +80,11 @@ public final class TranscriptRenderer {
         }
     }
 
-    // MARK: - Assistant Lines
+    // MARK: - Legacy Bridge
 
-    private func renderAssistantLines(text: String, thinking: String?) -> [String] {
-        var result: [String] = []
-
-        if let thinking = thinking, !thinking.isEmpty {
-            let firstLine = thinking.split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? thinking
-            let prefix = thinking.contains("\n") ? "💭 \(firstLine) …" : "💭 \(firstLine)"
-            result.append(Style.dimmed(prefix))
-        }
-
-        if !text.isEmpty {
-            result.append(contentsOf: text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init))
-        }
-
-        return result
+    @available(*, deprecated, message: "Use applyCore(_:) with CoreRenderEvent instead")
+    public func apply(_ event: RenderEvent) {
+        applyCore(LegacyRenderEventAdapter.adapt(event))
     }
 
     // MARK: - Tool Result Formatting
@@ -161,6 +151,28 @@ public final class TranscriptRenderer {
         let range = streamingRange ?? (lines.count..<lines.count)
         lines.replace(range: range, with: newLines)
         streamingRange = range.lowerBound..<(range.lowerBound + newLines.count)
+    }
+
+    private func renderMarkdown(lines rawLines: [String], isFinal: Bool) -> [String] {
+        guard !rawLines.isEmpty else { return [] }
+
+        var prefixLines: [String] = []
+        var contentStart = 0
+        for (index, line) in rawLines.enumerated() {
+            let plain = ansiStripped(line)
+            if plain.hasPrefix("💭 ") {
+                prefixLines.append(line)
+                contentStart = index + 1
+                continue
+            }
+            break
+        }
+
+        let contentLines = Array(rawLines.dropFirst(contentStart))
+        guard !contentLines.isEmpty else { return prefixLines }
+        let text = contentLines.joined(separator: "\n")
+        let rendered = markdownEngine.render(text: text, isFinal: isFinal)
+        return prefixLines + rendered
     }
 
     private func append(_ line: String) {

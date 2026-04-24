@@ -122,28 +122,50 @@ public final class TUI: @unchecked Sendable {
                 output += "\n"
             }
         } else {
-            // 增量：回锚 -> 清理旧帧区域 -> 重绘新帧
-            // 回退行数取决于上一帧光标是否停在帧末行（anchored）
-            let rewindRows = wasAnchored ? max(0, prevRows - 1) : prevRows
+            let firstDiff = firstDifferenceIndex(lhs: prev, rhs: lines)
+            let anchorChanged = wasAnchored != anchored
 
-            // 1) 回到旧帧顶部
+            if firstDiff == nil, !anchorChanged {
+                if let offset = cursorOffset, offset > 0 {
+                    output += "\u{1B}[\(offset)D"
+                    writer(output)
+                }
+                return
+            }
+
+            // 增量：仅重绘变化尾段（含 1 行上下文），避免全帧清理重绘。
+            // 如果仅锚点模式变化（cursorOffset nil <-> non-nil），退化为全帧重绘以保持语义正确。
+            let startLineIndex: Int
+            if let diff = firstDiff {
+                startLineIndex = diff > 0 ? (diff - 1) : 0
+            } else {
+                startLineIndex = 0
+            }
+
+            let prefixRows = totalPhysicalRows(for: prev.prefix(startLineIndex))
+            let prevTailRows = totalPhysicalRows(for: prev.dropFirst(startLineIndex))
+            let newTail = Array(lines.dropFirst(startLineIndex))
+
+            // 回到变化区域顶部；上一帧 anchored 时，光标位于末行内，否则位于帧后下一行。
+            let rewindRows = wasAnchored
+                ? max(0, (prevRows - 1) - prefixRows)
+                : max(0, prevRows - prefixRows)
+
             output += "\r"
             if rewindRows > 0 {
                 output += "\u{1B}[\(rewindRows)A"
             }
 
-            // 2) 清理旧帧区域：逐行 ESC[2K + \r\n
-            for _ in 0..<prevRows {
+            // 清理旧尾段
+            for _ in 0..<prevTailRows {
                 output += "\u{1B}[2K\r\n"
             }
 
-            // 3) 再次回到顶部（清理后光标在旧区域下方，固定回退 prevRows）
-            if prevRows > 0 {
-                output += "\u{1B}[\(prevRows)A"
+            // 回到旧尾段顶部并重绘新尾段
+            if prevTailRows > 0 {
+                output += "\u{1B}[\(prevTailRows)A"
             }
-
-            // 4) 输出新帧
-            output += lines.joined(separator: "\n")
+            output += newTail.joined(separator: "\n")
             if trailingNewline {
                 output += "\n"
             }
@@ -161,6 +183,20 @@ public final class TUI: @unchecked Sendable {
 
     private func totalPhysicalRows(for lines: [String]) -> Int {
         lines.map { physicalRows(for: $0, width: terminalWidth) }.reduce(0, +)
+    }
+
+    private func totalPhysicalRows(for lines: ArraySlice<String>) -> Int {
+        lines.reduce(into: 0) { partialResult, line in
+            partialResult += physicalRows(for: line, width: terminalWidth)
+        }
+    }
+
+    private func firstDifferenceIndex(lhs: [String], rhs: [String]) -> Int? {
+        let minCount = min(lhs.count, rhs.count)
+        for index in 0..<minCount where lhs[index] != rhs[index] {
+            return index
+        }
+        return lhs.count == rhs.count ? nil : minCount
     }
 }
 

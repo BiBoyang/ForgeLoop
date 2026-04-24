@@ -140,17 +140,18 @@ final class PerformanceGateTests: XCTestCase {
         )
     }
 
-    // MARK: - Gate 2) TranscriptRenderer.apply()
+    // MARK: - Gate 2) TranscriptRenderer.applyCore()
 
     func testGate_TranscriptRendererApply() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.messageStart(message: .user("Initial prompt")))
-        renderer.apply(.messageEnd(message: .assistant(text: "Response text here", thinking: nil, errorMessage: nil)))
+        renderer.applyCore(.insert(lines: [Style.user("❯ Initial prompt"), ""]))
+        renderer.applyCore(.blockStart(id: "seed"))
+        renderer.applyCore(.blockEnd(id: "seed", lines: ["Response text here"], footer: nil))
 
         let timing = measure(iterations: gateIterations) {
-            renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-            renderer.apply(.messageUpdate(message: .assistant(text: "Updated streaming content", thinking: nil, errorMessage: nil)))
-            renderer.apply(.messageEnd(message: .assistant(text: "Final content", thinking: nil, errorMessage: nil)))
+            renderer.applyCore(.blockStart(id: "stream"))
+            renderer.applyCore(.blockUpdate(id: "stream", lines: ["Updated streaming content"]))
+            renderer.applyCore(.blockEnd(id: "stream", lines: ["Final content"], footer: nil))
         }
         let threshold = baselineTranscriptApplyMicros * thresholdFactor
         XCTAssertLessThan(

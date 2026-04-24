@@ -3,7 +3,39 @@ import ForgeLoopAI
 import ForgeLoopAgent
 import ForgeLoopTUI
 
-/// 将 AgentEvent 单点转换为 RenderEvent；所有 Agent->TUI 边界收敛于此。
+// MARK: - Core Adapter (New)
+
+/// 将 `AgentEvent` 单点转换为 `CoreRenderEvent`；所有 Agent->TUI 边界收敛于此。
+func toCoreRenderEvent(_ event: AgentEvent) -> CoreRenderEvent? {
+    switch event {
+    case .agentStart:
+        return .notification(text: "agent started")
+    case .agentEnd:
+        return .notification(text: "agent ended")
+    case .turnStart, .turnEnd:
+        return nil
+    case .messageStart(let message):
+        return adaptMessageStart(message)
+    case .messageUpdate(let assistant, _):
+        let (text, thinking) = extractAssistantContent(assistant)
+        let lines = formatAssistantLines(text: text, thinking: thinking)
+        return .blockUpdate(id: "__assistant", lines: lines)
+    case .messageEnd(let message):
+        return adaptMessageEnd(message)
+    case .toolExecutionStart(let toolCallId, let toolName, let args):
+        return .operationStart(
+            id: toolCallId,
+            header: "● \(toolName)(\(args))",
+            status: "⎿ running..."
+        )
+    case .toolExecutionEnd(let toolCallId, _, let isError, let summary):
+        return .operationEnd(id: toolCallId, isError: isError, result: summary)
+    }
+}
+
+// MARK: - Legacy Adapter (Deprecated)
+
+@available(*, deprecated, message: "Use toCoreRenderEvent instead")
 func toRenderEvent(_ event: AgentEvent) -> RenderEvent? {
     switch event {
     case .agentStart:
@@ -34,8 +66,34 @@ func toRenderEvent(_ event: AgentEvent) -> RenderEvent? {
     }
 }
 
-// MARK: - Private
+// MARK: - Private Helpers
 
+private func adaptMessageStart(_ message: Message) -> CoreRenderEvent? {
+    switch message {
+    case .user(let user):
+        return .insert(lines: [Style.user("❯ " + user.text), ""])
+    case .assistant:
+        return .blockStart(id: "__assistant")
+    case .tool:
+        return nil
+    }
+}
+
+private func adaptMessageEnd(_ message: Message) -> CoreRenderEvent? {
+    switch message {
+    case .user:
+        return nil
+    case .assistant(let assistant):
+        let (text, thinking) = extractAssistantContent(assistant)
+        let lines = formatAssistantLines(text: text, thinking: thinking)
+        let footer = text.isEmpty ? assistant.errorMessage : nil
+        return .blockEnd(id: "__assistant", lines: lines, footer: footer)
+    case .tool:
+        return nil
+    }
+}
+
+@available(*, deprecated)
 private func toRenderMessage(_ message: Message) -> RenderMessage {
     switch message {
     case .user(let user):
@@ -46,6 +104,22 @@ private func toRenderMessage(_ message: Message) -> RenderMessage {
     case .tool(let tool):
         return .tool(toolCallId: tool.toolCallId, output: tool.output, isError: tool.isError)
     }
+}
+
+private func formatAssistantLines(text: String, thinking: String?) -> [String] {
+    var result: [String] = []
+
+    if let thinking = thinking, !thinking.isEmpty {
+        let firstLine = thinking.split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? thinking
+        let prefix = thinking.contains("\n") ? "💭 \(firstLine) …" : "💭 \(firstLine)"
+        result.append(Style.dimmed(prefix))
+    }
+
+    if !text.isEmpty {
+        result.append(contentsOf: text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init))
+    }
+
+    return result
 }
 
 /// 提取 assistant content：

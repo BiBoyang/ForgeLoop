@@ -276,3 +276,52 @@
   - `swift test --filter Agent`（91 tests, 0 failures）；
   - `swift test --filter AI`（13 tests, 0 failures）；
   - `./Scripts/release-check.sh`：仅剩 `git working tree dirty` 警告，符合开发中预期。
+
+## 2026-04-24
+- Post-v0.1.1 / PB-001（TUI 性能收敛）完成：
+  - `TUI.inlineAnchor` 从“每帧全区域清理重绘”升级为“脏尾段重绘”（首个变更行 + 1 行上下文），降低长文本流式刷新成本；
+  - 同帧重复渲染（内容未变且锚点模式未变）改为 no-op，不再输出冗余 ANSI 序列；
+  - 锚点模式切换（`cursorOffset` nil / non-nil）保留全量重绘兜底，保证光标语义正确；
+  - `PerformanceBaselineTests` / `PerformanceGateTests` 全量迁移到 `TranscriptRenderer.applyCore(_:)`，移除 deprecated `apply(_:)` warning；
+  - 文档同步：`ARCHITECTURE.md` 增补 inline 增量约束；看板新增 `PB-001`。
+- 验证通过：
+  - `swift test --filter TUIRenderStrategyTests`（35 passed）
+  - `swift test --filter RenderLoopTests`（9 passed）
+  - `swift test --filter CoreRenderEventAdapterTests`（12 passed）
+  - `swift test --filter PerformanceGateTests`（5 passed）
+  - `swift test --filter PerformanceBaselineTests`（13 passed）
+  - `swift test --filter ForgeLoopCliTests`（182 passed）
+  - 注：全量干净编译下，`CoreRenderEventAdapterTests` / `TranscriptRenderer*Tests` 仍存在 legacy `apply(_:)` 的 deprecated warning（行为对比测试有意覆盖旧入口）。
+
+- Post-v0.1.1 / PB-002（TUI Markdown 增量化最小闭环）完成：
+  - 新增 `Sources/ForgeLoopTUI/MarkdownEngine.swift`：`MarkdownEngine` 协议、`PlainTextMarkdownEngine`、`StreamingMarkdownEngine`；
+  - `StreamingMarkdownEngine` 实现 stable boundary（单调递增）+ unstable tail 重渲染；
+  - 新增表格策略：完整 GFM table 渲染为 box table，未闭合表格在 streaming 阶段降级为纯文本，`isFinal=true` 收敛；
+  - `TranscriptRenderer` 接入 Markdown 引擎：`blockStart` reset、`blockUpdate/blockEnd` 走 `renderMarkdown`，并保持 thinking 前缀行透传；
+  - 文档同步：`ARCHITECTURE.md` 增补 Markdown 增量渲染约束；看板新增 `PB-002`。
+- 验证通过：
+  - `swift test --filter MarkdownEngineTests`（4 passed）
+  - `swift test --filter TranscriptRendererMarkdownTests`（1 passed）
+  - `swift test --filter TranscriptRendererTests`（19 passed）
+  - `swift test --filter PerformanceGateTests`（5 passed）
+  - `swift test --filter ForgeLoopCliTests`（187 passed）
+
+- Post-v0.1.1 / PB-003（TUI 测试 warning 清零）完成：
+  - `CoreRenderEventAdapterTests` 重写为 `AgentEvent -> CoreRenderEvent` 对照验证，移除对 deprecated `RenderEvent/apply(_:)` 的直接调用；
+  - `LayoutRendererTests` 去除 `setUp()` actor-isolation 警告（测试类不再标记 `@MainActor`）；
+  - 保留 `TranscriptRenderer*` legacy 覆盖语义，同时通过类级 deprecated 标注避免 warning 噪声；
+  - 看板新增 `PB-003` 记录。
+- 验证通过：
+  - `swift test --filter CoreRenderEventAdapterTests`（14 passed）
+  - `swift test --filter ForgeLoopCliTests`（189 passed）
+  - `swift test --filter ForgeLoopCliTests > /tmp/fl_cli_pb003.log 2>&1` + `rg -n "warning:" /tmp/fl_cli_pb003.log`（无匹配，warning clean）
+
+- Post-v0.1.1 / PB-004（TranscriptRenderer* 测试迁移到纯 `applyCore` 路径）完成：
+  - `TranscriptRendererTests` 与 `TranscriptRendererToolResultTests` 移除 legacy `apply(_:)` 调用，统一使用 `applyCore(_:)` 驱动；
+  - 保持原语义覆盖不变：streaming 覆盖更新、thinking 折叠、tool running→done/failed 替换、notification 折叠、error footer 等断言全部保留；
+  - `TranscriptRenderer*` 两套测试不再依赖 deprecated 入口，warning 清理范围继续收敛。
+- 验证通过：
+  - `swift test --filter TranscriptRendererTests`（19 passed）
+  - `swift test --filter TranscriptRendererToolResultTests`（8 passed）
+  - `swift test --filter ForgeLoopCliTests`（189 passed）
+  - `swift test --filter ForgeLoopCliTests > /tmp/fl_cli_pb004.log 2>&1` + `rg -n "warning:|deprecated" /tmp/fl_cli_pb004.log`（无匹配）

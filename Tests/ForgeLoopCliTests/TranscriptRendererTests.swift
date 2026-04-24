@@ -7,10 +7,10 @@ final class TranscriptRendererTests: XCTestCase {
 
     func testStreamingUpdateReplacesPreviousContent() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageUpdate(message: .assistant(text: "first version", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageUpdate(message: .assistant(text: "second version", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageEnd(message: .assistant(text: "second version", thinking: nil, errorMessage: nil)))
+        startAssistant(renderer)
+        updateAssistant(renderer, text: "first version")
+        updateAssistant(renderer, text: "second version")
+        endAssistant(renderer, text: "second version")
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("second version"))
@@ -21,10 +21,10 @@ final class TranscriptRendererTests: XCTestCase {
 
     func testStreamingUpdateShortensLinesNoResidue() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageUpdate(message: .assistant(text: "line1\nline2\nline3", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageUpdate(message: .assistant(text: "only one", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageEnd(message: .assistant(text: "only one", thinking: nil, errorMessage: nil)))
+        startAssistant(renderer)
+        updateAssistant(renderer, text: "line1\nline2\nline3")
+        updateAssistant(renderer, text: "only one")
+        endAssistant(renderer, text: "only one")
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("only one"))
@@ -37,9 +37,9 @@ final class TranscriptRendererTests: XCTestCase {
 
     func testMessageEndAppendsSingleBlankSeparator() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageUpdate(message: .assistant(text: "hello", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageEnd(message: .assistant(text: "hello", thinking: nil, errorMessage: nil)))
+        startAssistant(renderer)
+        updateAssistant(renderer, text: "hello")
+        endAssistant(renderer, text: "hello")
 
         let lines = renderer.lines.all
         let blankCount = lines.filter { $0.isEmpty }.count
@@ -50,8 +50,8 @@ final class TranscriptRendererTests: XCTestCase {
 
     func testToolExecutionReplacesRunningWithDone() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.toolExecutionStart(toolCallId: "tc-1", toolName: "read_file", args: "{}"))
-        renderer.apply(.toolExecutionEnd(toolCallId: "tc-1", toolName: "read_file", isError: false, summary: nil))
+        renderer.applyCore(.operationStart(id: "tc-1", header: "● read_file({})", status: "⎿ running..."))
+        renderer.applyCore(.operationEnd(id: "tc-1", isError: false, result: nil))
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("● read_file({})"))
@@ -61,8 +61,8 @@ final class TranscriptRendererTests: XCTestCase {
 
     func testToolExecutionReplacesRunningWithFailed() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.toolExecutionStart(toolCallId: "tc-2", toolName: "bad_tool", args: "{}"))
-        renderer.apply(.toolExecutionEnd(toolCallId: "tc-2", toolName: "bad_tool", isError: true, summary: nil))
+        renderer.applyCore(.operationStart(id: "tc-2", header: "● bad_tool({})", status: "⎿ running..."))
+        renderer.applyCore(.operationEnd(id: "tc-2", isError: true, result: nil))
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("● bad_tool({})"))
@@ -74,9 +74,9 @@ final class TranscriptRendererTests: XCTestCase {
 
     func testMultiplePendingToolsReplacedIndependently() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.toolExecutionStart(toolCallId: "a", toolName: "toolA", args: "1"))
-        renderer.apply(.toolExecutionStart(toolCallId: "b", toolName: "toolB", args: "2"))
-        renderer.apply(.toolExecutionEnd(toolCallId: "a", toolName: "toolA", isError: false, summary: nil))
+        renderer.applyCore(.operationStart(id: "a", header: "● toolA(1)", status: "⎿ running..."))
+        renderer.applyCore(.operationStart(id: "b", header: "● toolB(2)", status: "⎿ running..."))
+        renderer.applyCore(.operationEnd(id: "a", isError: false, result: nil))
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("⎿ done"))
@@ -90,8 +90,8 @@ final class TranscriptRendererTests: XCTestCase {
     func testVeryLongSummaryIsTruncatedWithEllipsis() {
         let renderer = TranscriptRenderer()
         let veryLong = String(repeating: "x", count: 200)
-        renderer.apply(.toolExecutionStart(toolCallId: "tc-long", toolName: "read", args: "{}"))
-        renderer.apply(.toolExecutionEnd(toolCallId: "tc-long", toolName: "read", isError: false, summary: veryLong))
+        renderer.applyCore(.operationStart(id: "tc-long", header: "● read({})", status: "⎿ running..."))
+        renderer.applyCore(.operationEnd(id: "tc-long", isError: false, result: veryLong))
 
         let lines = renderer.lines.all
         let resultLine = lines.first { $0.hasPrefix("⎿ done:") }
@@ -105,8 +105,8 @@ final class TranscriptRendererTests: XCTestCase {
     func testShortSummaryNotTruncated() {
         let renderer = TranscriptRenderer()
         let shortSummary = String(repeating: "a", count: 100)
-        renderer.apply(.toolExecutionStart(toolCallId: "tc-short", toolName: "read", args: "{}"))
-        renderer.apply(.toolExecutionEnd(toolCallId: "tc-short", toolName: "read", isError: false, summary: shortSummary))
+        renderer.applyCore(.operationStart(id: "tc-short", header: "● read({})", status: "⎿ running..."))
+        renderer.applyCore(.operationEnd(id: "tc-short", isError: false, result: shortSummary))
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("⎿ done: \(shortSummary)"))
@@ -118,16 +118,16 @@ final class TranscriptRendererTests: XCTestCase {
         let renderer = TranscriptRenderer()
         XCTAssertEqual(renderer.pendingToolCount, 0)
 
-        renderer.apply(.toolExecutionStart(toolCallId: "a", toolName: "toolA", args: "1"))
+        renderer.applyCore(.operationStart(id: "a", header: "● toolA(1)", status: "⎿ running..."))
         XCTAssertEqual(renderer.pendingToolCount, 1)
 
-        renderer.apply(.toolExecutionStart(toolCallId: "b", toolName: "toolB", args: "2"))
+        renderer.applyCore(.operationStart(id: "b", header: "● toolB(2)", status: "⎿ running..."))
         XCTAssertEqual(renderer.pendingToolCount, 2)
 
-        renderer.apply(.toolExecutionEnd(toolCallId: "a", toolName: "toolA", isError: false, summary: nil))
+        renderer.applyCore(.operationEnd(id: "a", isError: false, result: nil))
         XCTAssertEqual(renderer.pendingToolCount, 1)
 
-        renderer.apply(.toolExecutionEnd(toolCallId: "b", toolName: "toolB", isError: false, summary: nil))
+        renderer.applyCore(.operationEnd(id: "b", isError: false, result: nil))
         XCTAssertEqual(renderer.pendingToolCount, 0)
     }
 
@@ -135,11 +135,11 @@ final class TranscriptRendererTests: XCTestCase {
 
     func testLongShortLongUpdateFinalContentOnly() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageUpdate(message: .assistant(text: "alpha\nbeta\ngamma", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageUpdate(message: .assistant(text: "x", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageUpdate(message: .assistant(text: "one\ntwo\nthree\nfour", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageEnd(message: .assistant(text: "one\ntwo\nthree\nfour", thinking: nil, errorMessage: nil)))
+        startAssistant(renderer)
+        updateAssistant(renderer, text: "alpha\nbeta\ngamma")
+        updateAssistant(renderer, text: "x")
+        updateAssistant(renderer, text: "one\ntwo\nthree\nfour")
+        endAssistant(renderer, text: "one\ntwo\nthree\nfour")
 
         let lines = renderer.lines.all.filter { !$0.isEmpty }
         XCTAssertEqual(lines, ["one", "two", "three", "four"])
@@ -149,8 +149,8 @@ final class TranscriptRendererTests: XCTestCase {
 
     func testErrorMessageShownWhenAssistantTextEmpty() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageEnd(message: .assistant(text: "", thinking: nil, errorMessage: "OpenAI Chat Completions HTTP 404: Not Found")))
+        startAssistant(renderer)
+        endAssistant(renderer, text: "", errorMessage: "OpenAI Chat Completions HTTP 404: Not Found")
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("[error] OpenAI Chat Completions HTTP 404: Not Found"))
@@ -160,8 +160,8 @@ final class TranscriptRendererTests: XCTestCase {
 
     func testThinkingBlockRendersWithIndicator() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageEnd(message: .assistant(text: "result", thinking: "I should think about this", errorMessage: nil)))
+        startAssistant(renderer)
+        endAssistant(renderer, text: "result", thinking: "I should think about this")
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("💭 I should think about this"))
@@ -171,8 +171,8 @@ final class TranscriptRendererTests: XCTestCase {
     func testThinkingBlockCollapsedWhenMultiline() {
         let renderer = TranscriptRenderer()
         let thinking = "line one\nline two\nline three"
-        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageEnd(message: .assistant(text: "ok", thinking: thinking, errorMessage: nil)))
+        startAssistant(renderer)
+        endAssistant(renderer, text: "ok", thinking: thinking)
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("💭 line one …"))
@@ -181,8 +181,8 @@ final class TranscriptRendererTests: XCTestCase {
 
     func testNoThinkingLineWhenThinkingNil() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageEnd(message: .assistant(text: "plain", thinking: nil, errorMessage: nil)))
+        startAssistant(renderer)
+        endAssistant(renderer, text: "plain")
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("plain"))
@@ -194,8 +194,8 @@ final class TranscriptRendererTests: XCTestCase {
     func testToolResultMultiLinePreview() {
         let renderer = TranscriptRenderer()
         let multiLine = "line1\nline2\nline3\nline4"
-        renderer.apply(.toolExecutionStart(toolCallId: "tc-ml", toolName: "bash", args: "{}"))
-        renderer.apply(.toolExecutionEnd(toolCallId: "tc-ml", toolName: "bash", isError: false, summary: multiLine))
+        renderer.applyCore(.operationStart(id: "tc-ml", header: "● bash({})", status: "⎿ running..."))
+        renderer.applyCore(.operationEnd(id: "tc-ml", isError: false, result: multiLine))
 
         let lines = renderer.lines.all
         let resultLines = lines.filter { $0.hasPrefix("⎿ done:") }
@@ -210,14 +210,13 @@ final class TranscriptRendererTests: XCTestCase {
     func testToolResultCharsTruncationStillApplied() {
         let renderer = TranscriptRenderer()
         let veryLong = String(repeating: "ab\n", count: 100)
-        renderer.apply(.toolExecutionStart(toolCallId: "tc-vl", toolName: "read", args: "{}"))
-        renderer.apply(.toolExecutionEnd(toolCallId: "tc-vl", toolName: "read", isError: false, summary: veryLong))
+        renderer.applyCore(.operationStart(id: "tc-vl", header: "● read({})", status: "⎿ running..."))
+        renderer.applyCore(.operationEnd(id: "tc-vl", isError: false, result: veryLong))
 
         let lines = renderer.lines.all
         let resultLines = lines.filter { $0.hasPrefix("⎿ done:") }
         XCTAssertEqual(resultLines.count, 4, "Should be 4 logical lines (3 preview + ...)")
         XCTAssertTrue(resultLines.last!.hasSuffix("..."))
-        // Each logical line should be reasonably short
         for line in resultLines {
             XCTAssertLessThanOrEqual(line.count, 135, "Line '\(line)' exceeds max length")
         }
@@ -227,10 +226,10 @@ final class TranscriptRendererTests: XCTestCase {
 
     func testNotificationsFoldedToMaxLines() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.notification(text: "first"))
-        renderer.apply(.notification(text: "second"))
-        renderer.apply(.notification(text: "third"))
-        renderer.apply(.notification(text: "fourth"))
+        renderer.applyCore(.notification(text: "first"))
+        renderer.applyCore(.notification(text: "second"))
+        renderer.applyCore(.notification(text: "third"))
+        renderer.applyCore(.notification(text: "fourth"))
 
         let lines = renderer.lines.all
         let notificationCount = lines.filter { $0.hasPrefix("▸") }.count
@@ -242,11 +241,11 @@ final class TranscriptRendererTests: XCTestCase {
 
     func testStreamingLongShortLongNoResidue() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageUpdate(message: .assistant(text: "alpha\nbeta\ngamma", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageUpdate(message: .assistant(text: "x", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageUpdate(message: .assistant(text: "one\ntwo\nthree\nfour", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageEnd(message: .assistant(text: "one\ntwo\nthree\nfour", thinking: nil, errorMessage: nil)))
+        startAssistant(renderer)
+        updateAssistant(renderer, text: "alpha\nbeta\ngamma")
+        updateAssistant(renderer, text: "x")
+        updateAssistant(renderer, text: "one\ntwo\nthree\nfour")
+        endAssistant(renderer, text: "one\ntwo\nthree\nfour")
 
         let lines = renderer.lines.all.filter { !$0.isEmpty }
         XCTAssertEqual(lines, ["one", "two", "three", "four"])
@@ -256,13 +255,56 @@ final class TranscriptRendererTests: XCTestCase {
 
     func testAssistantContentToolCallIgnored() {
         let renderer = TranscriptRenderer()
-        // Simulating what adapter produces: assistant with text + toolCall ignored
-        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageEnd(message: .assistant(text: "I will use a tool", thinking: nil, errorMessage: nil)))
+        startAssistant(renderer)
+        endAssistant(renderer, text: "I will use a tool")
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("I will use a tool"))
-        // No stray tool call text should appear in transcript
         XCTAssertFalse(lines.contains(where: { $0.contains("toolCall") || $0.contains("arguments") }))
     }
+}
+
+// MARK: - Helpers
+
+@MainActor
+private func startAssistant(_ renderer: TranscriptRenderer, id: String = "__assistant") {
+    renderer.applyCore(.blockStart(id: id))
+}
+
+@MainActor
+private func updateAssistant(
+    _ renderer: TranscriptRenderer,
+    text: String,
+    thinking: String? = nil,
+    id: String = "__assistant"
+) {
+    renderer.applyCore(.blockUpdate(id: id, lines: assistantLines(text: text, thinking: thinking)))
+}
+
+@MainActor
+private func endAssistant(
+    _ renderer: TranscriptRenderer,
+    text: String,
+    thinking: String? = nil,
+    errorMessage: String? = nil,
+    id: String = "__assistant"
+) {
+    let footer = text.isEmpty ? errorMessage : nil
+    renderer.applyCore(.blockEnd(id: id, lines: assistantLines(text: text, thinking: thinking), footer: footer))
+}
+
+private func assistantLines(text: String, thinking: String?) -> [String] {
+    var result: [String] = []
+
+    if let thinking, !thinking.isEmpty {
+        let first = thinking.split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? thinking
+        let prefix = thinking.contains("\n") ? "💭 \(first) …" : "💭 \(first)"
+        result.append(Style.dimmed(prefix))
+    }
+
+    if !text.isEmpty {
+        result.append(contentsOf: text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init))
+    }
+
+    return result
 }

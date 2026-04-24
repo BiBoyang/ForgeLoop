@@ -94,12 +94,27 @@ func runCodingTUIInternal(
     let agent = await makeCodingAgent(CodingAgentConfig(model: model, cwd: cwd))
     let layoutRenderer = LayoutRenderer()
 
+    let useRenderLoop = ProcessInfo.processInfo.environment["FORGELOOP_TUI_RENDER_LOOP"] == "1"
+    let renderLoop: RenderLoop? = useRenderLoop
+        ? RenderLoop(render: { [runner] frame in
+            runner.tui.requestRender(lines: frame, cursorOffset: 0)
+        })
+        : nil
+
+    let outputFrame: @Sendable ([String], RenderLoop.Priority) -> Void = { [runner, renderLoop] frame, priority in
+        if let renderLoop {
+            renderLoop.submit(frame: frame, priority: priority)
+        } else {
+            runner.tui.requestRender(lines: frame, cursorOffset: 0)
+        }
+    }
+
     var inputBuffer = ""
     var inputHistory = InputHistory()
     var queueLines: [String] = []
     var lastTerminalSize: TerminalSize? = getTerminalSize()
 
-    func renderFrame() {
+    func renderFrame(priority: RenderLoop.Priority = .normal) {
         let currentModel = agent.state.model
         let status = agent.state.isStreaming ? "streaming" : "idle"
         let toolCount = renderer.pendingToolCount
@@ -129,13 +144,22 @@ func runCodingTUIInternal(
         layout.input = ["❯ \(inputBuffer)"]
 
         let frame = layoutRenderer.render(layout: layout, config: config)
-        runner.tui.requestRender(lines: frame, cursorOffset: 0)
+        outputFrame(frame, priority)
     }
 
     _ = agent.subscribe { event, _ in
         await MainActor.run {
-            if let renderEvent = toRenderEvent(event) {
-                renderer.apply(renderEvent)
+            let eventPriority: RenderLoop.Priority = {
+                switch event {
+                case .messageEnd, .agentEnd:
+                    return .immediate
+                default:
+                    return .normal
+                }
+            }()
+
+            if let coreEvent = toCoreRenderEvent(event) {
+                renderer.applyCore(coreEvent)
             }
             let currentModel = agent.state.model
             let status = agent.state.isStreaming ? "streaming" : "idle"
@@ -166,7 +190,7 @@ func runCodingTUIInternal(
             layout.input = ["❯ \(inputBuffer)"]
 
             let frame = layoutRenderer.render(layout: layout, config: config)
-            runner.tui.requestRender(lines: frame, cursorOffset: 0)
+            outputFrame(frame, eventPriority)
         }
     }
 
@@ -197,26 +221,26 @@ func runCodingTUIInternal(
     }
 
     // 首帧渲染
-    renderFrame()
+    renderFrame(priority: .immediate)
 
     for await event in keyEvents {
         let action = event.toAction()
         switch action {
         case .insert(let c):
             inputBuffer.append(c)
-            renderFrame()
+            renderFrame(priority: .immediate)
 
         case .delete:
             if !inputBuffer.isEmpty {
                 inputBuffer.removeLast()
-                renderFrame()
+                renderFrame(priority: .immediate)
             }
 
         case .submit:
             let trimmed = inputBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
             inputHistory.commit(inputBuffer)
             inputBuffer = ""
-            renderFrame()
+            renderFrame(priority: .immediate)
 
             if !trimmed.isEmpty {
                 do {
@@ -228,6 +252,7 @@ func runCodingTUIInternal(
                         print(text)
                     case .exit:
                         bgMonitor.cancel()
+                        if let renderLoop { renderLoop.stop() }
                         return
                     }
                 } catch {
@@ -238,30 +263,31 @@ func runCodingTUIInternal(
         case .cancel:
             inputBuffer = ""
             inputHistory.reset()
-            renderFrame()
+            renderFrame(priority: .immediate)
 
         case .exit:
             bgMonitor.cancel()
+            if let renderLoop { renderLoop.stop() }
             return
 
         case .historyPrev:
             if let text = inputHistory.prev() {
                 inputBuffer = text
-                renderFrame()
+                renderFrame(priority: .immediate)
             }
 
         case .historyNext:
             if let text = inputHistory.next() {
                 inputBuffer = text
-                renderFrame()
+                renderFrame(priority: .immediate)
             } else if inputHistory.isAtCurrent {
                 inputBuffer = ""
-                renderFrame()
+                renderFrame(priority: .immediate)
             }
 
         case .paste(let text):
             inputBuffer.append(text)
-            renderFrame()
+            renderFrame(priority: .immediate)
 
         case .ignore:
             break
@@ -269,4 +295,5 @@ func runCodingTUIInternal(
     }
 
     bgMonitor.cancel()
+    if let renderLoop { renderLoop.stop() }
 }

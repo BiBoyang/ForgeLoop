@@ -45,6 +45,15 @@
 | STEP-027 | 登录与鉴权闭环（可商用门槛） | Done | 你 | `forgeloop login` + CredentialStore + 环境变量回退 + 诊断错误闭环 |
 | STEP-028 | 测试与性能门禁 | Done | 你 | `028A` 基线 + `028B` 门禁收口（non-blocking 阶段） |
 
+## Post-v0.1.1（TUI 深度优化）
+
+| Step ID | 标题 | 状态 | 负责人 | 备注 |
+|---|---|---|---|---|
+| PB-001 | inline 脏尾段重绘 + applyCore 性能链路清理 | Done | AI | `inlineAnchor` 同帧 no-op、变更尾段重绘；`Performance*Tests` 移除 deprecated `apply` 调用 |
+| PB-002 | MarkdownEngine 流式增量 + 表格渲染最小闭环 | Done | AI | 新增 `StreamingMarkdownEngine`（stable boundary + 未闭合降级），接入 `TranscriptRenderer` 并补测试 |
+| PB-003 | TUI 测试 warning 清零（deprecated/actor-isolation） | Done | AI | 重写 `CoreRenderEventAdapterTests` 为 Agent→Core 对照；清理 LayoutRendererTests actor 告警；`ForgeLoopCliTests` warning clean |
+| PB-004 | TranscriptRenderer* 测试迁移到纯 `applyCore` 路径 | Done | AI | `TranscriptRendererTests` + `TranscriptRendererToolResultTests` 移除 legacy `apply(_:)` 依赖；保持语义断言不变并通过 warning 扫描 |
+
 ## Phase 3 建议执行顺序（V2）
 
 1. `STEP-028A`：建立改造前基线（性能 + 回归快照）

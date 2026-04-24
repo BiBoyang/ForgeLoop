@@ -3,13 +3,12 @@ import XCTest
 
 @MainActor
 final class TranscriptRendererToolResultTests: XCTestCase {
-
     // MARK: - 1) Tool success with summary renders "done: <summary>"
 
     func testToolSuccessWithSummary() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.toolExecutionStart(toolCallId: "tc-1", toolName: "read", args: "{\"path\":\"file.txt\"}"))
-        renderer.apply(.toolExecutionEnd(toolCallId: "tc-1", toolName: "read", isError: false, summary: "hello world"))
+        renderer.applyCore(.operationStart(id: "tc-1", header: "● read({\"path\":\"file.txt\"})", status: "⎿ running..."))
+        renderer.applyCore(.operationEnd(id: "tc-1", isError: false, result: "hello world"))
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("● read({\"path\":\"file.txt\"})"))
@@ -21,8 +20,8 @@ final class TranscriptRendererToolResultTests: XCTestCase {
 
     func testToolFailureWithSummary() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.toolExecutionStart(toolCallId: "tc-2", toolName: "read", args: "{\"path\":\"missing\"}"))
-        renderer.apply(.toolExecutionEnd(toolCallId: "tc-2", toolName: "read", isError: true, summary: "File not found"))
+        renderer.applyCore(.operationStart(id: "tc-2", header: "● read({\"path\":\"missing\"})", status: "⎿ running..."))
+        renderer.applyCore(.operationEnd(id: "tc-2", isError: true, result: "File not found"))
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("⎿ failed: File not found"))
@@ -33,8 +32,8 @@ final class TranscriptRendererToolResultTests: XCTestCase {
 
     func testToolWithNilSummary() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.toolExecutionStart(toolCallId: "tc-3", toolName: "write", args: "{}"))
-        renderer.apply(.toolExecutionEnd(toolCallId: "tc-3", toolName: "write", isError: false, summary: nil))
+        renderer.applyCore(.operationStart(id: "tc-3", header: "● write({})", status: "⎿ running..."))
+        renderer.applyCore(.operationEnd(id: "tc-3", isError: false, result: nil))
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("⎿ done"))
@@ -45,8 +44,8 @@ final class TranscriptRendererToolResultTests: XCTestCase {
 
     func testToolEmptyOutputSummary() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.toolExecutionStart(toolCallId: "tc-4", toolName: "bash", args: "{}"))
-        renderer.apply(.toolExecutionEnd(toolCallId: "tc-4", toolName: "bash", isError: false, summary: "(no output)"))
+        renderer.applyCore(.operationStart(id: "tc-4", header: "● bash({})", status: "⎿ running..."))
+        renderer.applyCore(.operationEnd(id: "tc-4", isError: false, result: "(no output)"))
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("⎿ done: (no output)"))
@@ -57,8 +56,8 @@ final class TranscriptRendererToolResultTests: XCTestCase {
     func testToolLongSummaryRendering() {
         let renderer = TranscriptRenderer()
         let longSummary = String(repeating: "a", count: 80) + "..."
-        renderer.apply(.toolExecutionStart(toolCallId: "tc-5", toolName: "read", args: "{}"))
-        renderer.apply(.toolExecutionEnd(toolCallId: "tc-5", toolName: "read", isError: false, summary: longSummary))
+        renderer.applyCore(.operationStart(id: "tc-5", header: "● read({})", status: "⎿ running..."))
+        renderer.applyCore(.operationEnd(id: "tc-5", isError: false, result: longSummary))
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("⎿ done: \(longSummary)"))
@@ -68,12 +67,12 @@ final class TranscriptRendererToolResultTests: XCTestCase {
 
     func testMultipleToolsWithMixedSummaries() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.toolExecutionStart(toolCallId: "a", toolName: "read", args: "1"))
-        renderer.apply(.toolExecutionStart(toolCallId: "b", toolName: "write", args: "2"))
-        renderer.apply(.toolExecutionStart(toolCallId: "c", toolName: "bash", args: "3"))
+        renderer.applyCore(.operationStart(id: "a", header: "● read(1)", status: "⎿ running..."))
+        renderer.applyCore(.operationStart(id: "b", header: "● write(2)", status: "⎿ running..."))
+        renderer.applyCore(.operationStart(id: "c", header: "● bash(3)", status: "⎿ running..."))
 
-        renderer.apply(.toolExecutionEnd(toolCallId: "a", toolName: "read", isError: false, summary: "file content"))
-        renderer.apply(.toolExecutionEnd(toolCallId: "b", toolName: "write", isError: true, summary: "permission denied"))
+        renderer.applyCore(.operationEnd(id: "a", isError: false, result: "file content"))
+        renderer.applyCore(.operationEnd(id: "b", isError: true, result: "permission denied"))
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("⎿ done: file content"))
@@ -87,27 +86,22 @@ final class TranscriptRendererToolResultTests: XCTestCase {
     func testToolResultBetweenAssistantMessages() {
         let renderer = TranscriptRenderer()
 
-        // First assistant message
-        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageUpdate(message: .assistant(text: "Here is the result:", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageEnd(message: .assistant(text: "Here is the result:", thinking: nil, errorMessage: nil)))
+        startAssistant(renderer)
+        updateAssistant(renderer, text: "Here is the result:")
+        endAssistant(renderer, text: "Here is the result:")
 
-        // Tool execution
-        renderer.apply(.toolExecutionStart(toolCallId: "tc-7", toolName: "read", args: "{}"))
-        renderer.apply(.toolExecutionEnd(toolCallId: "tc-7", toolName: "read", isError: false, summary: "data"))
+        renderer.applyCore(.operationStart(id: "tc-7", header: "● read({})", status: "⎿ running..."))
+        renderer.applyCore(.operationEnd(id: "tc-7", isError: false, result: "data"))
 
-        // Second assistant message
-        renderer.apply(.messageStart(message: .assistant(text: "", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageUpdate(message: .assistant(text: "Done", thinking: nil, errorMessage: nil)))
-        renderer.apply(.messageEnd(message: .assistant(text: "Done", thinking: nil, errorMessage: nil)))
+        startAssistant(renderer)
+        updateAssistant(renderer, text: "Done")
+        endAssistant(renderer, text: "Done")
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("Here is the result:"))
         XCTAssertTrue(lines.contains("⎿ done: data"))
         XCTAssertTrue(lines.contains("Done"))
 
-        // Verify streamingRange was cleared after first messageEnd
-        // (by checking no duplicate content from previous streaming)
         let assistantLineCount = lines.filter { $0 == "Here is the result:" }.count
         XCTAssertEqual(assistantLineCount, 1)
     }
@@ -116,11 +110,55 @@ final class TranscriptRendererToolResultTests: XCTestCase {
 
     func testToolSummaryFirstLineOnly() {
         let renderer = TranscriptRenderer()
-        renderer.apply(.toolExecutionStart(toolCallId: "tc-8", toolName: "bash", args: "{}"))
-        // AgentLoop should only send first line, but renderer should handle gracefully
-        renderer.apply(.toolExecutionEnd(toolCallId: "tc-8", toolName: "bash", isError: false, summary: "first line"))
+        renderer.applyCore(.operationStart(id: "tc-8", header: "● bash({})", status: "⎿ running..."))
+        renderer.applyCore(.operationEnd(id: "tc-8", isError: false, result: "first line"))
 
         let lines = renderer.lines.all
         XCTAssertTrue(lines.contains("⎿ done: first line"))
     }
+}
+
+// MARK: - Helpers
+
+@MainActor
+private func startAssistant(_ renderer: TranscriptRenderer, id: String = "__assistant") {
+    renderer.applyCore(.blockStart(id: id))
+}
+
+@MainActor
+private func updateAssistant(
+    _ renderer: TranscriptRenderer,
+    text: String,
+    thinking: String? = nil,
+    id: String = "__assistant"
+) {
+    renderer.applyCore(.blockUpdate(id: id, lines: assistantLines(text: text, thinking: thinking)))
+}
+
+@MainActor
+private func endAssistant(
+    _ renderer: TranscriptRenderer,
+    text: String,
+    thinking: String? = nil,
+    errorMessage: String? = nil,
+    id: String = "__assistant"
+) {
+    let footer = text.isEmpty ? errorMessage : nil
+    renderer.applyCore(.blockEnd(id: id, lines: assistantLines(text: text, thinking: thinking), footer: footer))
+}
+
+private func assistantLines(text: String, thinking: String?) -> [String] {
+    var result: [String] = []
+
+    if let thinking, !thinking.isEmpty {
+        let first = thinking.split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? thinking
+        let prefix = thinking.contains("\n") ? "💭 \(first) …" : "💭 \(first)"
+        result.append(Style.dimmed(prefix))
+    }
+
+    if !text.isEmpty {
+        result.append(contentsOf: text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init))
+    }
+
+    return result
 }
