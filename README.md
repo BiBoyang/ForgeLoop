@@ -11,6 +11,16 @@
 - `ForgeLoopAgent` for lifecycle, loop control, tools, and cancellation
 - `ForgeLoopCli` for interaction, routing, and terminal UX
 
+## Terminal Rendering
+
+`ForgeLoop` now wires an application-level Markdown table policy into `ForgeLoopTUI`.
+
+- wide tables prefer `compact -> truncate -> degrade`
+- the app uses ASCII `"..."` truncation in table cells
+- the real call site is `TranscriptRenderer(markdownOptions:)` in `ForgeLoopCli`
+
+If you want to tune this app-level behavior, update `forgeLoopMarkdownRenderOptions()` in `Sources/ForgeLoopCli/CodingTUI.swift`.
+
 ## Related Projects
 
 - `ForgeLoopTUI` (standalone TUI rendering library): https://github.com/BiBoyang/ForgeLoopTUI

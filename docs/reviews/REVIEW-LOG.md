@@ -385,3 +385,15 @@
   - `TUIRenderStrategyTests` 同步更新期望值（TTY 使用 `\r\n`），覆盖首帧、增量、legacy、cursor 多行场景。
 - 验证通过：
   - `swift test --filter TUIRenderStrategyTests`（35 passed）
+
+- Post-v0.1.1 / PB-012（ForgeLoop 接入可配置宽表策略）完成：
+  - `ForgeLoopTUI` 侧已提供 `MarkdownRenderOptions` / `TableRenderPolicy` / `TableOverflowBehavior`，并将宽表默认策略升级为“压缩列宽 -> 截断单元格 -> 最后降级”；
+  - `ForgeLoop` 主仓在真实调用点 `Sources/ForgeLoopCli/CodingTUI.swift` 中显式使用 `TranscriptRenderer(markdownOptions:)`，不再依赖库默认注入路径；
+  - 新增 `forgeLoopMarkdownRenderOptions()` 作为应用层策略入口，当前配置为 `maxRenderedWidth=80`、`minColumnWidth=4`、`maxColumnWidth=28`、`truncationIndicator="..."`、`overflowBehavior=.compactThenTruncateThenDegrade`；
+  - `README.md` 同步补充“Terminal Rendering”说明，明确如需调整应用层表格策略，应修改 `forgeLoopMarkdownRenderOptions()`；
+  - 新增 `MarkdownRenderOptionsTests.swift` 覆盖应用层策略值与 ASCII `...` 截断行为，确保主仓确实接入了应用配置而不是仅沿用库默认值。
+- 验证通过：
+  - `cd /Users/boyang/Desktop/WebKit_build/ForgeLoopTUI && swift test`（65 passed）
+  - `cd /Users/boyang/Desktop/WebKit_build/ForgeLoopTUI/Examples/MarkdownShowcase && swift run MarkdownShowcase sample`（`markdownview-sample.md` 中表格渲染为紧凑 box table）
+  - `swift test --filter MarkdownEngineTests`（ForgeLoopCliTests，10 passed）
+  - `swift test --filter MarkdownRenderOptionsTests`（2 passed）

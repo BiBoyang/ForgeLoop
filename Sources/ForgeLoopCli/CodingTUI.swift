@@ -11,6 +11,18 @@ func labelForModel(_ model: Model) -> String {
     return "\(model.name) (\(model.id))"
 }
 
+func forgeLoopMarkdownRenderOptions() -> MarkdownRenderOptions {
+    MarkdownRenderOptions(
+        tablePolicy: TableRenderPolicy(
+            maxRenderedWidth: 80,
+            minColumnWidth: 4,
+            maxColumnWidth: 28,
+            truncationIndicator: "...",
+            overflowBehavior: .compactThenTruncateThenDegrade
+        )
+    )
+}
+
 // MARK: - KeyAction
 
 /// 输入层按键动作抽象，避免 CodingTUI 主循环直接膨胀 KeyEvent 分支。
@@ -106,7 +118,7 @@ func runCodingTUIInternal(
     cwd: String
 ) async throws {
     let runner = TUIRunner()
-    let renderer = TranscriptRenderer()
+    let renderer = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
     let agent = await makeCodingAgent(CodingAgentConfig(model: model, cwd: cwd))
     let layoutRenderer = LayoutRenderer()
 

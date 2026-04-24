@@ -60,6 +60,7 @@
 | PB-009 | TUI streaming transcript 增量输出降噪 | Done | AI | 不再整帧重复输出 transcript/header/prompt；TTY streaming 只追加 transcript 稳定增量，idle footer 单独渲染 |
 | PB-010 | Streaming planner 上移到 `ForgeLoopTUI` | Done | AI | `StreamingTranscriptAppendState` 从 `ForgeLoopCli` 迁移到 `ForgeLoopTUI` target，并同步独立仓库 |
 | PB-011 | `ForgeLoopCliTests` 性能门禁重校准 | Done | AI | 更新 `render-small-first` / `render-medium-first` 基线，`ForgeLoopCliTests` 208/208 全绿 |
+| PB-012 | ForgeLoop 接入可配置宽表策略 | Done | AI | `CodingTUI` 显式传入 app-level `MarkdownRenderOptions`；宽表默认 compact/truncate，应用层可继续调整 |
 
 ## Phase 3 建议执行顺序（V2）
 

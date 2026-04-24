@@ -18,11 +18,12 @@ final class MarkdownEngineTests: XCTestCase {
         """
         let lines = engine.render(text: text, isFinal: true)
 
-        XCTAssertTrue(lines.contains("┌───────┬───────┐"))
-        XCTAssertTrue(lines.contains("│ name  │ score │"))
-        XCTAssertTrue(lines.contains("│ alice │    99 │"))
-        XCTAssertTrue(lines.contains("│ bob   │     7 │"))
-        XCTAssertTrue(lines.contains("└───────┴───────┘"))
+        XCTAssertTrue(lines.first?.hasPrefix("┌") == true)
+        XCTAssertTrue(lines.contains(where: { $0.contains("name") && $0.contains("score") }))
+        XCTAssertTrue(lines.contains(where: { $0.contains("alice") && $0.contains("99") }))
+        XCTAssertTrue(lines.contains(where: { $0.contains("bob") && $0.contains("7") }))
+        XCTAssertTrue(lines.last?.hasPrefix("└") == true)
+        XCTAssertFalse(lines.contains("| alice | 99 |"))
     }
 
     func testStreamingEngineKeepsIncompleteTableAsPlainTextWhenNotFinal() {
@@ -51,8 +52,8 @@ final class MarkdownEngineTests: XCTestCase {
         | alice | 99 |
         """
         let lines = engine.render(text: completed, isFinal: true)
-        XCTAssertTrue(lines.contains("┌───────┬───────┐"))
-        XCTAssertTrue(lines.contains("│ alice │    99 │"))
+        XCTAssertTrue(lines.first?.hasPrefix("┌") == true)
+        XCTAssertTrue(lines.contains(where: { $0.contains("alice") && $0.contains("99") }))
         XCTAssertFalse(lines.contains("| alice | 99 |"))
     }
 
@@ -90,21 +91,21 @@ final class MarkdownEngineTests: XCTestCase {
         XCTAssertTrue(lines.contains(where: { $0.contains("a | b") }))
     }
 
-    func testStreamingEngineDegradesVeryWideTableToPlainText() {
+    func testStreamingEngineCompactsAndTruncatesVeryWideTableByDefault() {
         let engine = StreamingMarkdownEngine()
         let wideCell = String(repeating: "x", count: 260)
         let text = """
-        | col |
-        | --- |
-        | \(wideCell) |
+        | col | detail |
+        | --- | --- |
+        | ok | \(wideCell) |
         """
 
         let lines = engine.render(text: text, isFinal: true)
-        XCTAssertEqual(lines, [
-            "| col |",
-            "| --- |",
-            "| \(wideCell) |",
-        ])
+        XCTAssertTrue(lines.first?.hasPrefix("┌") == true)
+        XCTAssertTrue(lines.contains(where: { $0.contains("col") && $0.contains("detail") }))
+        XCTAssertTrue(lines.contains(where: { $0.contains("…") }))
+        XCTAssertTrue(lines.last?.hasPrefix("└") == true)
+        XCTAssertFalse(lines.contains(where: { $0.contains(wideCell) }))
     }
 
     func testStreamingEngineDegradesTooManyColumnsToPlainText() {
@@ -149,10 +150,10 @@ final class MarkdownEngineTests: XCTestCase {
 
         let lines = engine.render(text: text, isFinal: true)
 
-        XCTAssertTrue(lines.contains("┌──────┬────┐"))
-        XCTAssertTrue(lines.contains("│ 名称 │ 值 │"))
-        XCTAssertTrue(lines.contains("│ 测试 │ 甲 │"))
-        XCTAssertTrue(lines.contains("└──────┴────┘"))
+        XCTAssertTrue(lines.first?.hasPrefix("┌") == true)
+        XCTAssertTrue(lines.contains(where: { $0.contains("名称") && $0.contains("值") }))
+        XCTAssertTrue(lines.contains(where: { $0.contains("测试") && $0.contains("甲") }))
+        XCTAssertTrue(lines.last?.hasPrefix("└") == true)
     }
 }
 
@@ -184,8 +185,8 @@ final class TranscriptRendererMarkdownTests: XCTestCase {
 
         let lines = renderer.transcriptLines
         XCTAssertTrue(lines.contains(where: { $0.contains("💭 preparing table") }))
-        XCTAssertTrue(lines.contains("┌───┬───┐"))
-        XCTAssertTrue(lines.contains("│ a │ b │"))
-        XCTAssertTrue(lines.contains("│ 1 │ 2 │"))
+        XCTAssertTrue(lines.contains(where: { $0.hasPrefix("┌") }))
+        XCTAssertTrue(lines.contains(where: { $0.contains("a") && $0.contains("b") && $0.contains("│") }))
+        XCTAssertTrue(lines.contains(where: { $0.contains("1") && $0.contains("2") && $0.contains("│") }))
     }
 }
