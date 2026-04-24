@@ -106,6 +106,54 @@ final class MarkdownEngineTests: XCTestCase {
             "| \(wideCell) |",
         ])
     }
+
+    func testStreamingEngineDegradesTooManyColumnsToPlainText() {
+        let engine = StreamingMarkdownEngine()
+        let text = """
+        | c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9 | c10 | c11 | c12 | c13 | c14 | c15 | c16 |
+        | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+        | a | b | c | d | e | f | g | h | i | j | k | l | m | n | o | p |
+        """
+
+        let lines = engine.render(text: text, isFinal: true)
+        XCTAssertEqual(lines, [
+            "| c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9 | c10 | c11 | c12 | c13 | c14 | c15 | c16 |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| a | b | c | d | e | f | g | h | i | j | k | l | m | n | o | p |",
+        ])
+    }
+
+    func testStreamingEngineKeepsInvalidDividerTableAsPlainText() {
+        let engine = StreamingMarkdownEngine()
+        let text = """
+        | name | score |
+        | nope | ---: |
+        | alice | 99 |
+        """
+
+        let lines = engine.render(text: text, isFinal: true)
+        XCTAssertEqual(lines, [
+            "| name | score |",
+            "| nope | ---: |",
+            "| alice | 99 |",
+        ])
+    }
+
+    func testStreamingEngineRendersCJKTableUsingVisibleWidths() {
+        let engine = StreamingMarkdownEngine()
+        let text = """
+        | 名称 | 值 |
+        | --- | --- |
+        | 测试 | 甲 |
+        """
+
+        let lines = engine.render(text: text, isFinal: true)
+
+        XCTAssertTrue(lines.contains("┌──────┬────┐"))
+        XCTAssertTrue(lines.contains("│ 名称 │ 值 │"))
+        XCTAssertTrue(lines.contains("│ 测试 │ 甲 │"))
+        XCTAssertTrue(lines.contains("└──────┴────┘"))
+    }
 }
 
 @MainActor

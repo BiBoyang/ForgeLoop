@@ -24,7 +24,7 @@ public final class PlainTextMarkdownEngine: MarkdownEngine {
 public final class StreamingMarkdownEngine: MarkdownEngine {
     private var stableSource = ""
     private var stableRendered: [String] = []
-    private let maxTableContentWidth = 200
+    private let maxRenderedTableWidth = 80
 
     public init() {}
 
@@ -229,7 +229,10 @@ public final class StreamingMarkdownEngine: MarkdownEngine {
     }
 
     private func shouldDegradeWideTable(widths: [Int]) -> Bool {
-        widths.reduce(0, +) > maxTableContentWidth
+        let renderedWidth = visibleWidth(
+            borderLine(left: "┌", middle: "┬", right: "┐", widths: widths)
+        )
+        return renderedWidth > maxRenderedTableWidth
     }
 
     private func parseTableCells(_ line: String) -> [String]? {
