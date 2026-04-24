@@ -26,6 +26,22 @@ enum KeyAction: Sendable, Equatable {
     case ignore
 }
 
+enum EscapeIntent: Sendable, Equatable {
+    case abortStreaming
+    case killBackgroundTasks
+    case clearInput
+}
+
+func resolveEscapeIntent(isStreaming: Bool, hasRunningBackgroundTasks: Bool) -> EscapeIntent {
+    if isStreaming {
+        return .abortStreaming
+    }
+    if hasRunningBackgroundTasks {
+        return .killBackgroundTasks
+    }
+    return .clearInput
+}
+
 extension KeyEvent {
     /// 默认按键到动作映射；可注入替换以支持自定义快捷键。
     func toAction() -> KeyAction {
@@ -94,12 +110,12 @@ func runCodingTUIInternal(
     let agent = await makeCodingAgent(CodingAgentConfig(model: model, cwd: cwd))
     let layoutRenderer = LayoutRenderer()
 
-    let useRenderLoop = ProcessInfo.processInfo.environment["FORGELOOP_TUI_RENDER_LOOP"] == "1"
-    let renderLoop: RenderLoop? = useRenderLoop
-        ? RenderLoop(render: { [runner] frame in
+    let disableRenderLoop = ProcessInfo.processInfo.environment["FORGELOOP_TUI_RENDER_LOOP"] == "0"
+    let renderLoop: RenderLoop? = disableRenderLoop
+        ? nil
+        : RenderLoop(render: { [runner] frame in
             runner.tui.requestRender(lines: frame, cursorOffset: 0)
         })
-        : nil
 
     let outputFrame: @Sendable ([String], RenderLoop.Priority) -> Void = { [runner, renderLoop] frame, priority in
         if let renderLoop {
@@ -108,11 +124,33 @@ func runCodingTUIInternal(
             runner.tui.requestRender(lines: frame, cursorOffset: 0)
         }
     }
+    var hasPrintedStaticHeader = false
+    var appendModeActive = false
+    var transcriptAppendState = StreamingTranscriptAppendState()
 
     var inputBuffer = ""
     var inputHistory = InputHistory()
     var queueLines: [String] = []
     var lastTerminalSize: TerminalSize? = getTerminalSize()
+
+
+    func refreshQueueLines() async {
+        if let bgManager = agent.backgroundTaskManager {
+            let tasks = await bgManager.status()
+            queueLines = tasks.map { task in
+                let icon: String
+                switch task.status {
+                case .running: icon = "◉"
+                case .success: icon = "✓"
+                case .failed: icon = "✗"
+                case .cancelled: icon = "⊘"
+                }
+                return "\(icon) [\(task.id)] \(task.command)"
+            }
+        } else {
+            queueLines = []
+        }
+    }
 
     func renderFrame(priority: RenderLoop.Priority = .normal) {
         let currentModel = agent.state.model
@@ -123,7 +161,7 @@ func runCodingTUIInternal(
 
         let size = getTerminalSize()
         if let last = lastTerminalSize, let current = size, last != current {
-            runner.tui.updateTerminalSize(width: current.columns)
+            runner.tui.updateTerminalSize(width: current.columns, height: current.rows)
         }
         lastTerminalSize = size
 
@@ -131,20 +169,65 @@ func runCodingTUIInternal(
             terminalHeight: size?.rows ?? 24,
             terminalWidth: size?.columns ?? 80
         )
-        var layout = Layout()
-        layout.header = [
+        let headerLines = [
             Style.header("✻ forgeloop replica"),
             Style.dimmed("  \(labelForModel(currentModel))"),
             Style.dimmed("  \(cwd)"),
             "",
         ]
-        layout.transcript = renderer.lines.all
-        layout.queue = queueLines
-        layout.status = [Style.dimmed(statusBar)]
-        layout.input = ["❯ \(inputBuffer)"]
+        var footerLayout = Layout()
+        footerLayout.queue = queueLines
+        footerLayout.status = [Style.dimmed(statusBar)]
+        footerLayout.input = prefixedLogicalLines(prefix: "❯ ", text: inputBuffer)
+        let footerFrame = layoutRenderer.render(layout: footerLayout, config: config)
 
-        let frame = layoutRenderer.render(layout: layout, config: config)
-        outputFrame(frame, priority)
+        guard runner.tui.isTTY else {
+            var fullLayout = Layout()
+            fullLayout.header = headerLines
+            fullLayout.transcript = renderer.lines.all
+            fullLayout.pinnedTranscriptRange = renderer.preferredPinnedRange
+            fullLayout.queue = queueLines
+            fullLayout.status = [Style.dimmed(statusBar)]
+            fullLayout.input = prefixedLogicalLines(prefix: "❯ ", text: inputBuffer)
+            let frame = layoutRenderer.render(layout: fullLayout, config: config)
+            outputFrame(frame, priority)
+            return
+        }
+
+        if !hasPrintedStaticHeader {
+            runner.tui.appendFrame(lines: headerLines)
+            hasPrintedStaticHeader = true
+        }
+
+        if agent.state.isStreaming {
+            if !appendModeActive {
+                runner.tui.requestRender(lines: [])
+                appendModeActive = true
+            }
+
+            let appendedTranscriptLines = transcriptAppendState.consume(
+                transcript: renderer.lines.all,
+                activeRange: renderer.activeStreamingRange
+            )
+            if !appendedTranscriptLines.isEmpty {
+                runner.tui.appendFrame(lines: appendedTranscriptLines)
+            }
+            return
+        }
+
+        if appendModeActive {
+            let remainingTranscriptLines = transcriptAppendState.consume(
+                transcript: renderer.lines.all,
+                activeRange: nil
+            )
+            if !remainingTranscriptLines.isEmpty {
+                runner.tui.appendFrame(lines: remainingTranscriptLines)
+            }
+            runner.tui.resetRetainedFrame()
+            appendModeActive = false
+        }
+
+        outputFrame(footerFrame, priority)
     }
 
     _ = agent.subscribe { event, _ in
@@ -161,36 +244,93 @@ func runCodingTUIInternal(
             if let coreEvent = toCoreRenderEvent(event) {
                 renderer.applyCore(coreEvent)
             }
+
             let currentModel = agent.state.model
             let status = agent.state.isStreaming ? "streaming" : "idle"
             let toolCount = renderer.pendingToolCount
             let toolHint = toolCount > 0 ? " | \(toolCount) tool\(toolCount == 1 ? "" : "s") pending" : ""
-            let statusBar = "model: \(labelForModel(currentModel)) | \(status)\(toolHint)"
-
             let size = getTerminalSize()
             if let last = lastTerminalSize, let current = size, last != current {
-                runner.tui.updateTerminalSize(width: current.columns)
+                runner.tui.updateTerminalSize(width: current.columns, height: current.rows)
             }
             lastTerminalSize = size
 
-            let config = LayoutConfig(
+            _ = LayoutConfig(
                 terminalHeight: size?.rows ?? 24,
                 terminalWidth: size?.columns ?? 80
             )
-            var layout = Layout()
-            layout.header = [
+            let headerLines = [
                 Style.header("✻ forgeloop replica"),
                 Style.dimmed("  \(labelForModel(currentModel))"),
                 Style.dimmed("  \(cwd)"),
                 "",
             ]
-            layout.transcript = renderer.lines.all
-            layout.queue = queueLines
-            layout.status = [Style.dimmed(statusBar)]
-            layout.input = ["❯ \(inputBuffer)"]
+            let statusBar = "model: \(labelForModel(currentModel)) | \(status)\(toolHint)"
+            var footerLayout = Layout()
+            footerLayout.queue = queueLines
+            footerLayout.status = [Style.dimmed(statusBar)]
+            footerLayout.input = prefixedLogicalLines(prefix: "❯ ", text: inputBuffer)
+            let footerFrame = layoutRenderer.render(
+                layout: footerLayout,
+                config: LayoutConfig(
+                    terminalHeight: size?.rows ?? 24,
+                    terminalWidth: size?.columns ?? 80
+                )
+            )
 
-            let frame = layoutRenderer.render(layout: layout, config: config)
-            outputFrame(frame, eventPriority)
+            guard runner.tui.isTTY else {
+                var fullLayout = Layout()
+                fullLayout.header = headerLines
+                fullLayout.transcript = renderer.lines.all
+                fullLayout.pinnedTranscriptRange = renderer.preferredPinnedRange
+                fullLayout.queue = queueLines
+                fullLayout.status = [Style.dimmed(statusBar)]
+                fullLayout.input = prefixedLogicalLines(prefix: "❯ ", text: inputBuffer)
+                let frame = layoutRenderer.render(
+                    layout: fullLayout,
+                    config: LayoutConfig(
+                        terminalHeight: size?.rows ?? 24,
+                        terminalWidth: size?.columns ?? 80
+                    )
+                )
+                outputFrame(frame, eventPriority)
+                return
+            }
+
+            if !hasPrintedStaticHeader {
+                runner.tui.appendFrame(lines: headerLines)
+                hasPrintedStaticHeader = true
+            }
+
+            if agent.state.isStreaming {
+                if !appendModeActive {
+                    runner.tui.requestRender(lines: [])
+                    appendModeActive = true
+                }
+
+                let appendedTranscriptLines = transcriptAppendState.consume(
+                    transcript: renderer.lines.all,
+                    activeRange: renderer.activeStreamingRange
+                )
+                if !appendedTranscriptLines.isEmpty {
+                    runner.tui.appendFrame(lines: appendedTranscriptLines)
+                }
+                return
+            }
+
+            if appendModeActive {
+                let remainingTranscriptLines = transcriptAppendState.consume(
+                    transcript: renderer.lines.all,
+                    activeRange: nil
+                )
+                if !remainingTranscriptLines.isEmpty {
+                    runner.tui.appendFrame(lines: remainingTranscriptLines)
+                }
+                runner.tui.resetRetainedFrame()
+                appendModeActive = false
+            }
+
+            outputFrame(footerFrame, eventPriority)
         }
     }
 
@@ -200,21 +340,7 @@ func runCodingTUIInternal(
     // 后台 queue 监视
     let bgMonitor = Task { @MainActor in
         while !Task.isCancelled {
-            if let bgManager = agent.backgroundTaskManager {
-                let tasks = await bgManager.status()
-                queueLines = tasks.map { task in
-                    let icon: String
-                    switch task.status {
-                    case .running: icon = "◉"
-                    case .success: icon = "✓"
-                    case .failed: icon = "✗"
-                    case .cancelled: icon = "⊘"
-                    }
-                    return "\(icon) [\(task.id)] \(task.command)"
-                }
-            } else {
-                queueLines = []
-            }
+            await refreshQueueLines()
             renderFrame()
             try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
@@ -261,9 +387,47 @@ func runCodingTUIInternal(
             }
 
         case .cancel:
-            inputBuffer = ""
-            inputHistory.reset()
-            renderFrame(priority: .immediate)
+            let hasRunningBackgroundTasks: Bool
+            if let bgManager = agent.backgroundTaskManager {
+                let tasks = await bgManager.status()
+                hasRunningBackgroundTasks = tasks.contains { $0.status == .running }
+            } else {
+                hasRunningBackgroundTasks = false
+            }
+
+            let intent = resolveEscapeIntent(
+                isStreaming: agent.state.isStreaming,
+                hasRunningBackgroundTasks: hasRunningBackgroundTasks
+            )
+
+            switch intent {
+            case .abortStreaming:
+                agent.abort()
+                inputBuffer = ""
+                inputHistory.reset()
+                renderFrame(priority: .immediate)
+
+            case .killBackgroundTasks:
+                if let bgManager = agent.backgroundTaskManager {
+                    let cancelledCount = await bgManager.cancelAll(by: "user")
+                    if cancelledCount > 0 {
+                        renderer.applyCore(
+                            .notification(
+                                text: "cancelled \(cancelledCount) background task\(cancelledCount == 1 ? "" : "s")"
+                            )
+                        )
+                    }
+                    await refreshQueueLines()
+                }
+                inputBuffer = ""
+                inputHistory.reset()
+                renderFrame(priority: .immediate)
+
+            case .clearInput:
+                inputBuffer = ""
+                inputHistory.reset()
+                renderFrame(priority: .immediate)
+            }
 
         case .exit:
             bgMonitor.cancel()

@@ -115,6 +115,18 @@ public actor BackgroundTaskManager {
         tasks[id] = task
     }
 
+    @discardableResult
+    public func cancelAll(by source: String = "user") -> Int {
+        let runningIDs = tasks.values
+            .filter { $0.status == .running }
+            .map(\.id)
+
+        for id in runningIDs {
+            cancel(id: id, by: source)
+        }
+        return runningIDs.count
+    }
+
     public func allTaskIDs() -> [String] {
         Array(tasks.keys).sorted()
     }

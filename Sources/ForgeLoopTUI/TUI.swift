@@ -1,5 +1,11 @@
 import Foundation
 
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+
 public enum RenderStrategy: Sendable {
     case legacyAbsolute
     case inlineAnchor
@@ -7,22 +13,55 @@ public enum RenderStrategy: Sendable {
 
 public typealias FrameWriter = @Sendable (String) -> Void
 
+private func writeToStandardOutput(_ text: String) {
+    let data = Data(text.utf8)
+    data.withUnsafeBytes { rawBuffer in
+        guard let baseAddress = rawBuffer.baseAddress else { return }
+        var written = 0
+
+        while written < rawBuffer.count {
+            let pointer = baseAddress.advanced(by: written)
+            let remaining = rawBuffer.count - written
+            let result = Darwin.write(STDOUT_FILENO, pointer, remaining)
+
+            if result > 0 {
+                written += result
+                continue
+            }
+
+            if result == -1 && errno == EINTR {
+                continue
+            }
+
+            if result == -1 && (errno == EAGAIN || errno == EWOULDBLOCK) {
+                usleep(1_000)
+                continue
+            }
+
+            break
+        }
+    }
+}
+
 public final class TUI: @unchecked Sendable {
 
     public let strategy: RenderStrategy
     public let isTTY: Bool
     public private(set) var terminalWidth: Int
+    public private(set) var terminalHeight: Int
     private let writer: FrameWriter
 
     private let lock = NSLock()
     private var previousLines: [String] = []
     private var lastFramePhysicalRows: Int = 0
     private var lastCursorAnchored: Bool = false
+    private let ttyNewline = "\r\n"
 
     public init(
         strategy: RenderStrategy? = nil,
         isTTY: Bool = true,
         terminalWidth: Int = 80,
+        terminalHeight: Int = 24,
         writer: FrameWriter? = nil
     ) {
         let resolvedStrategy: RenderStrategy
@@ -40,15 +79,17 @@ public final class TUI: @unchecked Sendable {
         self.strategy = resolvedStrategy
         self.isTTY = isTTY
         self.terminalWidth = terminalWidth
-        self.writer = writer ?? { text in
-            FileHandle.standardOutput.write(Data(text.utf8))
-        }
+        self.terminalHeight = terminalHeight
+        self.writer = writer ?? writeToStandardOutput
     }
 
     /// Update terminal dimensions and force a full redraw on the next render.
-    public func updateTerminalSize(width: Int) {
+    public func updateTerminalSize(width: Int, height: Int? = nil) {
         lock.withLock {
             terminalWidth = width
+            if let height {
+                terminalHeight = height
+            }
         }
     }
 
@@ -59,9 +100,11 @@ public final class TUI: @unchecked Sendable {
     }
 
     public func requestRender(lines: [String], cursorOffset: Int? = nil) {
+        let normalizedLines = splitLogicalLines(lines)
+
         if !isTTY {
-            var output = lines.joined(separator: "\n")
-            if !lines.isEmpty && cursorOffset == nil {
+            var output = normalizedLines.joined(separator: "\n")
+            if !normalizedLines.isEmpty && cursorOffset == nil {
                 output += "\n"
             }
             writer(output)
@@ -70,27 +113,56 @@ public final class TUI: @unchecked Sendable {
 
         switch strategy {
         case .legacyAbsolute:
-            renderLegacy(lines: lines)
+            renderLegacy(lines: normalizedLines, cursorOffset: cursorOffset)
         case .inlineAnchor:
-            renderInline(lines: lines, cursorOffset: cursorOffset)
+            if shouldFallbackToFullRedraw(for: normalizedLines) {
+                renderLegacy(lines: normalizedLines, cursorOffset: cursorOffset)
+            } else {
+                renderInline(lines: normalizedLines, cursorOffset: cursorOffset)
+            }
+        }
+    }
+
+    /// Append a full frame directly to terminal output without any retained-mode redraw.
+    /// This preserves scrollback and lets the terminal naturally handle overflow.
+    public func appendFrame(lines: [String]) {
+        let normalizedLines = splitLogicalLines(lines)
+        let separator = isTTY ? ttyNewline : "\n"
+        var output = normalizedLines.joined(separator: separator)
+        if !normalizedLines.isEmpty {
+            output += separator
+        }
+        writer(output)
+    }
+
+    /// Drop retained redraw state so the next inline render starts fresh at the current cursor.
+    public func resetRetainedFrame() {
+        lock.withLock {
+            previousLines = []
+            lastFramePhysicalRows = 0
+            lastCursorAnchored = false
         }
     }
 
     // MARK: - Legacy Absolute
 
-    private func renderLegacy(lines: [String]) {
+    private func renderLegacy(lines: [String], cursorOffset: Int?) {
         // 锁内：仅状态快照
         let _ = lock.withLock {
             previousLines = lines
             lastFramePhysicalRows = totalPhysicalRows(for: lines)
-            lastCursorAnchored = false
+            lastCursorAnchored = cursorOffset != nil
         }
 
         // 锁外：stdout I/O
+        let anchored = cursorOffset != nil
         var output = "\u{1B}[2J\u{1B}[H"
-        output += lines.joined(separator: "\n")
-        if !lines.isEmpty {
-            output += "\n"
+        output += lines.joined(separator: ttyNewline)
+        if !lines.isEmpty && !anchored {
+            output += ttyNewline
+        }
+        if let offset = cursorOffset, offset > 0 {
+            output += "\u{1B}[\(offset)D"
         }
         writer(output)
     }
@@ -117,9 +189,9 @@ public final class TUI: @unchecked Sendable {
 
         if prev.isEmpty {
             // 首帧：直接在当前光标处输出，不清屏
-            output += lines.joined(separator: "\n")
+            output += lines.joined(separator: ttyNewline)
             if trailingNewline {
-                output += "\n"
+                output += ttyNewline
             }
         } else {
             let firstDiff = firstDifferenceIndex(lhs: prev, rhs: lines)
@@ -165,9 +237,9 @@ public final class TUI: @unchecked Sendable {
             if prevTailRows > 0 {
                 output += "\u{1B}[\(prevTailRows)A"
             }
-            output += newTail.joined(separator: "\n")
+            output += newTail.joined(separator: ttyNewline)
             if trailingNewline {
-                output += "\n"
+                output += ttyNewline
             }
         }
 
@@ -197,6 +269,14 @@ public final class TUI: @unchecked Sendable {
             return index
         }
         return lhs.count == rhs.count ? nil : minCount
+    }
+
+    private func shouldFallbackToFullRedraw(for lines: [String]) -> Bool {
+        lock.withLock {
+            guard terminalHeight > 0 else { return false }
+            let currentRows = totalPhysicalRows(for: lines)
+            return max(lastFramePhysicalRows, currentRows) > terminalHeight
+        }
     }
 }
 

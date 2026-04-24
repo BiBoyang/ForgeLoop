@@ -24,6 +24,10 @@ public struct Layout: Sendable {
     public var status: [String] = []
     public var input: [String] = []
 
+    /// 若设置，表示 transcript 中需要完整保留的行范围（如正在 streaming 的 block）。
+    /// LayoutRenderer 在预算裁剪时会优先保证该范围不被从中间静默截断。
+    public var pinnedTranscriptRange: Range<Int>? = nil
+
     public init() {}
 }
 

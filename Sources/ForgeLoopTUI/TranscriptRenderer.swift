@@ -8,11 +8,24 @@ import Foundation
 public final class TranscriptRenderer {
     public let lines: TranscriptBuffer
     private var streamingRange: Range<Int>?
+    private var completedRange: Range<Int>?
     private var pendingTools: [String: Int] = [:]
     private var notificationLines: [Int] = []
     private let markdownEngine: MarkdownEngine
 
     public var pendingToolCount: Int { pendingTools.count }
+
+    /// 当前活跃的 streaming block 在 transcript 中的行范围。
+    /// `blockStart` 时设置起点，`blockUpdate` 时更新终点，`blockEnd` 后清空为 `nil`。
+    public var activeStreamingRange: Range<Int>? { streamingRange }
+
+    /// 最近一次已完成的 assistant block 在 transcript 中的行范围。
+    /// `blockEnd` 时记录，下一次 `blockStart` 前保留，新的 `.insert`（用户消息）后清掉。
+    public var lastCompletedAssistantRange: Range<Int>? { completedRange }
+
+    /// 布局应优先保护的 pinned range：优先使用活跃中的 streaming range，
+    /// 若无则回退到最近一次已完成的 assistant range。
+    public var preferredPinnedRange: Range<Int>? { streamingRange ?? completedRange }
 
     private let maxSummaryChars = 120
     private let maxSummaryLines = 3
@@ -28,6 +41,9 @@ public final class TranscriptRenderer {
     public func applyCore(_ event: CoreRenderEvent) {
         switch event {
         case .insert(let newLines):
+            // 新的静态内容插入（通常是用户消息）意味着新一轮对话开始，
+            // 清掉旧的 completed pin，避免长期保留过期的 assistant 回复范围。
+            completedRange = nil
             for line in newLines {
                 append(line)
             }
@@ -42,6 +58,8 @@ public final class TranscriptRenderer {
 
         case .blockEnd(_, let newLines, let footer):
             replaceStreaming(with: renderMarkdown(lines: newLines, isFinal: true))
+            // 记录刚完成的 assistant block 范围，供后续布局继续 pinned
+            completedRange = streamingRange
             streamingRange = nil
             markdownEngine.reset()
             append("")
@@ -142,6 +160,11 @@ public final class TranscriptRenderer {
             let newLower = range.lowerBound > threshold ? range.lowerBound + delta : range.lowerBound
             let newUpper = range.upperBound > threshold ? range.upperBound + delta : range.upperBound
             streamingRange = newLower..<newUpper
+        }
+        if let range = completedRange {
+            let newLower = range.lowerBound > threshold ? range.lowerBound + delta : range.lowerBound
+            let newUpper = range.upperBound > threshold ? range.upperBound + delta : range.upperBound
+            completedRange = newLower..<newUpper
         }
     }
 

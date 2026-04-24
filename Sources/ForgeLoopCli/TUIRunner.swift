@@ -169,7 +169,6 @@ actor KeyParser {
     private let bracketedPasteEnd: [UInt8] = [0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E]   // ESC[201~
     private let arrowUp: [UInt8] = [0x1B, 0x5B, 0x41]                                 // ESC[A
     private let arrowDown: [UInt8] = [0x1B, 0x5B, 0x42]                               // ESC[B
-
     private func handleCSI(_ csiBytes: [UInt8], cont: AsyncStream<KeyEvent>.Continuation) {
         switch csiBytes {
         case bracketedPasteStart:

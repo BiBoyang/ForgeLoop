@@ -29,6 +29,7 @@
 - **TUICore**：通用渲染核心，不依赖任何业务模块。
   - 事件模型：`CoreRenderEvent`（去 chat 语义，见 `Sources/ForgeLoopTUI/CoreRenderEvents.swift`）
   - 渲染器：`TranscriptRenderer.applyCore(_:)` 为核心入口
+  - 增量规划：`StreamingTranscriptAppendState` 负责 transcript append-only streaming 的稳定增量规划
   - 原则：Core 不依赖 `ForgeLoopAI` / `ForgeLoopAgent` / `ForgeLoopCli`
 - **TUIChatAdapter**：业务语义适配层。
   - `AgentEvent -> CoreRenderEvent` 映射：`Sources/ForgeLoopCli/AgentEventRenderAdapter.swift`
@@ -44,7 +45,7 @@
 `RenderLoop`（`Sources/ForgeLoopTUI/RenderLoop.swift`）提供统一帧调度：
 - **16ms tick 合帧**：`submit(.normal)` 在 tick 内多次提交只保留最后一帧（latest-frame-wins）。
 - **即时刷新**：`submit(.immediate)` 立即 flush 当前 pending frame，不等待 tick。
-- **默认关闭**：通过环境变量 `FORGELOOP_TUI_RENDER_LOOP=1` 启用；未设置时走直出路径，行为与改造前一致。
+- **默认开启**：通过环境变量 `FORGELOOP_TUI_RENDER_LOOP=0` 可关闭并回退直出路径。
 - **生命周期**：`stop()` 取消 timer 并丢弃 pending frame，退出前必须调用以避免泄漏。
 
 ### Inline 渲染增量约束
@@ -53,6 +54,9 @@
 - 通过 `firstDifferenceIndex` 找到首个变更行，仅重绘变更尾段（含 1 行上下文），避免全帧清理。
 - 同帧重复渲染（内容不变且锚点模式不变）不再输出 ANSI 序列，降低高频流式输出噪声。
 - 当锚点模式变化（`cursorOffset` 从 `nil` 到非 `nil` 或反向）时退化为全帧重绘，保证光标语义正确。
+- 当当前帧或上一帧物理行数超过终端可视高度时，禁止继续使用 inline 回卷重绘；自动退化为安全的全帧重绘，避免对 scrollback 以上区域做错误覆盖。
+- `CodingTUI` 在 **TTY + streaming** 场景下不再走 retained-mode 覆盖式重绘，而是直接追加完整 frame 到 stdout，让终端自然保留 scrollback；streaming 结束后再恢复 inline 输入渲染。
+- 为避免整帧追加导致 header / prompt / status 重复刷屏，TTY + streaming 的最终策略收敛为：仅追加 transcript 的稳定增量（新静态行 + 已完成的 assistant 行）；footer（queue/status/input）在 idle 时单独渲染。
 
 ### Markdown 增量渲染约束
 

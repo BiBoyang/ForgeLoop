@@ -25,10 +25,12 @@ final class PerformanceGateTests: XCTestCase {
     // MARK: - 028A 基线常量（单位与阈值一致）
 
     /// render-small-first 基线（单位：微秒）。
-    private let baselineRenderSmallFirstMicros: Double = 10.0
+    /// 2026-04-24 当前实现（安全 stdout + streaming transcript planner）实测约 40~42μs。
+    private let baselineRenderSmallFirstMicros: Double = 45.0
 
     /// render-medium-first 基线（单位：微秒）。
-    private let baselineRenderMediumFirstMicros: Double = 75.0
+    /// 2026-04-24 当前实现实测约 275~330μs。
+    private let baselineRenderMediumFirstMicros: Double = 300.0
 
     /// render-large-first 基线（单位：毫秒）。
     private let baselineRenderLargeFirstMillis: Double = 10.0

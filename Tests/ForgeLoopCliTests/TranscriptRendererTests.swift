@@ -262,6 +262,127 @@ final class TranscriptRendererTests: XCTestCase {
         XCTAssertTrue(lines.contains("I will use a tool"))
         XCTAssertFalse(lines.contains(where: { $0.contains("toolCall") || $0.contains("arguments") }))
     }
+
+    // MARK: - Active Streaming Range
+
+    func testActiveRangeSetOnBlockStart() {
+        let renderer = TranscriptRenderer()
+        XCTAssertNil(renderer.activeStreamingRange)
+
+        renderer.applyCore(.blockStart(id: "a"))
+        XCTAssertEqual(renderer.activeStreamingRange, 0..<0)
+    }
+
+    func testActiveRangeUpdatedOnBlockUpdate() {
+        let renderer = TranscriptRenderer()
+        renderer.applyCore(.blockStart(id: "a"))
+        XCTAssertEqual(renderer.activeStreamingRange, 0..<0)
+
+        renderer.applyCore(.blockUpdate(id: "a", lines: ["hello"]))
+        XCTAssertEqual(renderer.activeStreamingRange, 0..<1)
+
+        renderer.applyCore(.blockUpdate(id: "a", lines: ["hello", "world"]))
+        XCTAssertEqual(renderer.activeStreamingRange, 0..<2)
+    }
+
+    func testActiveRangeClearedOnBlockEnd() {
+        let renderer = TranscriptRenderer()
+        renderer.applyCore(.blockStart(id: "a"))
+        renderer.applyCore(.blockUpdate(id: "a", lines: ["hello"]))
+        XCTAssertEqual(renderer.activeStreamingRange, 0..<1)
+
+        renderer.applyCore(.blockEnd(id: "a", lines: ["hello"], footer: nil))
+        XCTAssertNil(renderer.activeStreamingRange)
+    }
+
+    func testActiveRangeEmptyAfterBlockEndWithMultipleLines() {
+        let renderer = TranscriptRenderer()
+        startAssistant(renderer)
+        updateAssistant(renderer, text: "line one\nline two")
+        XCTAssertNotNil(renderer.activeStreamingRange)
+
+        endAssistant(renderer, text: "line one\nline two")
+        XCTAssertNil(renderer.activeStreamingRange)
+    }
+
+    // MARK: - Preferred Pinned Range (completed assistant persistence)
+
+    func testPreferredPinnedRangeAvailableAfterBlockEnd() {
+        let renderer = TranscriptRenderer()
+        startAssistant(renderer)
+        updateAssistant(renderer, text: "hello world")
+        endAssistant(renderer, text: "hello world")
+
+        // activeStreamingRange is nil after blockEnd
+        XCTAssertNil(renderer.activeStreamingRange)
+        // but preferredPinnedRange should still point to the completed block
+        XCTAssertNotNil(renderer.preferredPinnedRange)
+        XCTAssertEqual(renderer.preferredPinnedRange, renderer.lastCompletedAssistantRange)
+
+        // The block was rendered as "hello world" + empty separator = 2 lines
+        // But the pinned range tracks the original block position
+        let lines = renderer.lines.all
+        XCTAssertTrue(lines.contains("hello world"))
+    }
+
+    func testPreferredPinnedRangeSwitchesToNewActiveOnBlockStart() {
+        let renderer = TranscriptRenderer()
+
+        // First assistant block
+        startAssistant(renderer, id: "first")
+        updateAssistant(renderer, text: "first reply", id: "first")
+        endAssistant(renderer, text: "first reply", id: "first")
+
+        let firstRange = renderer.lastCompletedAssistantRange
+        XCTAssertNotNil(firstRange)
+        XCTAssertEqual(renderer.preferredPinnedRange, firstRange)
+
+        // Second assistant block starts — preferred should switch to active
+        startAssistant(renderer, id: "second")
+        XCTAssertNotNil(renderer.activeStreamingRange)
+        XCTAssertEqual(renderer.preferredPinnedRange, renderer.activeStreamingRange)
+        // completed range from first block should still exist
+        XCTAssertEqual(renderer.lastCompletedAssistantRange, firstRange)
+    }
+
+    func testInsertClearsCompletedPin() {
+        let renderer = TranscriptRenderer()
+        startAssistant(renderer)
+        updateAssistant(renderer, text: "assistant reply")
+        endAssistant(renderer, text: "assistant reply")
+
+        XCTAssertNotNil(renderer.lastCompletedAssistantRange)
+        XCTAssertNotNil(renderer.preferredPinnedRange)
+
+        // User sends a new message (via .insert)
+        renderer.applyCore(.insert(lines: ["❯ user message", ""]))
+
+        XCTAssertNil(renderer.lastCompletedAssistantRange)
+        XCTAssertNil(renderer.preferredPinnedRange)
+    }
+
+    func testCompletedRangeShiftedByNotificationFolding() {
+        let renderer = TranscriptRenderer()
+
+        // Push assistant block to higher index with notifications
+        renderer.applyCore(.notification(text: "n1"))
+        renderer.applyCore(.notification(text: "n2"))
+
+        // Assistant block at index 2
+        startAssistant(renderer)
+        updateAssistant(renderer, text: "reply")
+        endAssistant(renderer, text: "reply")
+
+        XCTAssertEqual(renderer.lastCompletedAssistantRange, 2..<3)
+
+        // Add more notifications, causing the oldest to be deleted and indices to shift
+        renderer.applyCore(.notification(text: "n3"))
+        renderer.applyCore(.notification(text: "n4"))
+
+        // After folding (max 3 notifications), the oldest is removed and all
+        // subsequent indices shift by -1. The completed range should track this.
+        XCTAssertEqual(renderer.lastCompletedAssistantRange, 1..<2)
+    }
 }
 
 // MARK: - Helpers

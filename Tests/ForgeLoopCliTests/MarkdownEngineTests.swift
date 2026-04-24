@@ -55,6 +55,57 @@ final class MarkdownEngineTests: XCTestCase {
         XCTAssertTrue(lines.contains("│ alice │    99 │"))
         XCTAssertFalse(lines.contains("| alice | 99 |"))
     }
+
+    func testStreamingEngineKeepsCodeFenceTableLikeTextAsPlainText() {
+        let engine = StreamingMarkdownEngine()
+        let text = """
+        ```markdown
+        | a | b |
+        | --- | --- |
+        | 1 | 2 |
+        ```
+        """
+
+        let lines = engine.render(text: text, isFinal: true)
+        XCTAssertEqual(lines, [
+            "```markdown",
+            "| a | b |",
+            "| --- | --- |",
+            "| 1 | 2 |",
+            "```",
+        ])
+        XCTAssertFalse(lines.contains(where: { $0.contains("┌") || $0.contains("│") }))
+    }
+
+    func testStreamingEngineParsesEscapedPipeInCells() {
+        let engine = StreamingMarkdownEngine()
+        let text = """
+        | col | raw |
+        | --- | --- |
+        | a \\| b | ok |
+        """
+
+        let lines = engine.render(text: text, isFinal: true)
+        XCTAssertTrue(lines.contains(where: { $0.contains("│") && $0.contains("col") && $0.contains("raw") }))
+        XCTAssertTrue(lines.contains(where: { $0.contains("a | b") }))
+    }
+
+    func testStreamingEngineDegradesVeryWideTableToPlainText() {
+        let engine = StreamingMarkdownEngine()
+        let wideCell = String(repeating: "x", count: 260)
+        let text = """
+        | col |
+        | --- |
+        | \(wideCell) |
+        """
+
+        let lines = engine.render(text: text, isFinal: true)
+        XCTAssertEqual(lines, [
+            "| col |",
+            "| --- |",
+            "| \(wideCell) |",
+        ])
+    }
 }
 
 @MainActor

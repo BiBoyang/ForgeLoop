@@ -43,6 +43,17 @@ final class CoreRenderEventAdapterTests: XCTestCase {
         )
     }
 
+    func testMultilineUserMessageEquivalence() {
+        assertEquivalent(
+            agentEvents: [
+                .messageStart(message: .user(UserMessage(text: "line1\nline2\nline3"))),
+            ],
+            coreEvents: [
+                .insert(lines: [Style.user("❯ line1"), "line2", "line3", ""]),
+            ]
+        )
+    }
+
     // MARK: - 3) Tool execution 等价
 
     func testToolExecutionEquivalence() {

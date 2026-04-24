@@ -61,7 +61,16 @@ final class TUIRenderStrategyTests: XCTestCase {
 
         tui.requestRender(lines: ["hello", "world"])
 
-        XCTAssertEqual(spy.last, "hello\nworld\n")
+        XCTAssertEqual(spy.last, "hello\r\nworld\r\n")
+    }
+
+    func testInlineFirstFrameNormalizesEmbeddedNewlines() {
+        let spy = OutputSpy()
+        let tui = TUI(strategy: .inlineAnchor, writer: spy.writer)
+
+        tui.requestRender(lines: ["hello\nworld"])
+
+        XCTAssertEqual(spy.last, "hello\r\nworld\r\n")
     }
 
     func testInlineEmptyFirstFrameOutputsNothing() {
@@ -95,7 +104,7 @@ final class TUIRenderStrategyTests: XCTestCase {
         let tui = TUI(strategy: .inlineAnchor, writer: spy.writer)
 
         tui.requestRender(lines: ["a", "b"])
-        XCTAssertEqual(spy.last, "a\nb\n")
+        XCTAssertEqual(spy.last, "a\r\nb\r\n")
 
         tui.requestRender(lines: ["a", "c"])
 
@@ -103,8 +112,8 @@ final class TUIRenderStrategyTests: XCTestCase {
         // 1) \r + ESC[2A  (go back to top: 2 lines up from after the frame)
         // 2) ESC[2K\r\n ESC[2K\r\n  (clear 2 lines)
         // 3) ESC[2A  (back to top again)
-        // 4) "a\nc\n"
-        let expected = "\r\u{1B}[2A\u{1B}[2K\r\n\u{1B}[2K\r\n\u{1B}[2Aa\nc\n"
+        // 4) "a\r\nc\r\n"
+        let expected = "\r\u{1B}[2A\u{1B}[2K\r\n\u{1B}[2K\r\n\u{1B}[2Aa\r\nc\r\n"
         XCTAssertEqual(spy.last, expected)
     }
 
@@ -113,12 +122,12 @@ final class TUIRenderStrategyTests: XCTestCase {
         let tui = TUI(strategy: .inlineAnchor, writer: spy.writer)
 
         tui.requestRender(lines: ["only"])
-        XCTAssertEqual(spy.last, "only\n")
+        XCTAssertEqual(spy.last, "only\r\n")
 
         tui.requestRender(lines: ["changed"])
 
         // 1 line: \r + ESC[1A, clear once, ESC[1A back, new frame
-        let expected = "\r\u{1B}[1A\u{1B}[2K\r\n\u{1B}[1Achanged\n"
+        let expected = "\r\u{1B}[1A\u{1B}[2K\r\n\u{1B}[1Achanged\r\n"
         XCTAssertEqual(spy.last, expected)
     }
 
@@ -177,7 +186,16 @@ final class TUIRenderStrategyTests: XCTestCase {
 
         tui.requestRender(lines: ["a", "b"])
 
-        XCTAssertEqual(spy.last, "\u{1B}[2J\u{1B}[Ha\nb\n")
+        XCTAssertEqual(spy.last, "\u{1B}[2J\u{1B}[Ha\r\nb\r\n")
+    }
+
+    func testLegacyRespectsCursorOffset() {
+        let spy = OutputSpy()
+        let tui = TUI(strategy: .legacyAbsolute, writer: spy.writer)
+
+        tui.requestRender(lines: ["prompt"], cursorOffset: 2)
+
+        XCTAssertEqual(spy.last, "\u{1B}[2J\u{1B}[Hprompt\u{1B}[2D")
     }
 
     func testLegacyEmptyFrame() {
@@ -198,7 +216,7 @@ final class TUIRenderStrategyTests: XCTestCase {
         tui.requestRender(lines: ["test"])
 
         XCTAssertEqual(spy.outputs.count, 1)
-        XCTAssertEqual(spy.outputs[0], "test\n")
+        XCTAssertEqual(spy.outputs[0], "test\r\n")
     }
 
     func testWriterCalledForIncrementalRenders() {
@@ -223,10 +241,10 @@ final class TUIRenderStrategyTests: XCTestCase {
         tui.requestRender(lines: ["frame3"])
 
         // First frame: direct output
-        XCTAssertEqual(spy.outputs[0], "frame1\n")
+        XCTAssertEqual(spy.outputs[0], "frame1\r\n")
 
         // Incremental: go back, clear 1, back, draw
-        let expectedIncremental = "\r\u{1B}[1A\u{1B}[2K\r\n\u{1B}[1Aframe2\n"
+        let expectedIncremental = "\r\u{1B}[1A\u{1B}[2K\r\n\u{1B}[1Aframe2\r\n"
         XCTAssertEqual(spy.outputs[1], expectedIncremental)
 
         // Third render also incremental
@@ -281,7 +299,7 @@ final class TUIRenderStrategyTests: XCTestCase {
         // After resize, should do full region redraw: go back to top, clear old area, redraw
         XCTAssertTrue(afterResize.contains("\u{1B}[2A"), "Resize should rewind to old frame top")
         XCTAssertTrue(afterResize.contains("\u{1B}[2K"), "Resize should clear old frame area")
-        XCTAssertTrue(afterResize.contains("frame3\nframe4"), "Should redraw new frame after clearing")
+        XCTAssertTrue(afterResize.contains("frame3\r\nframe4"), "Should redraw new frame after clearing")
     }
 
     func testInvalidateForcesFullRedraw() {
@@ -295,7 +313,7 @@ final class TUIRenderStrategyTests: XCTestCase {
         let output = spy.outputs.last!
         XCTAssertTrue(output.contains("\u{1B}[2A"), "Invalidate should trigger rewind")
         XCTAssertTrue(output.contains("\u{1B}[2K"), "Invalidate should trigger clear")
-        XCTAssertTrue(output.contains("c\nd"), "Should redraw after clear")
+        XCTAssertTrue(output.contains("c\r\nd"), "Should redraw after clear")
     }
 
     // MARK: - 11) Cursor marker
@@ -331,7 +349,7 @@ final class TUIRenderStrategyTests: XCTestCase {
 
         let output = spy.outputs.last!
         // With nil cursorOffset, \n is appended normally
-        XCTAssertEqual(output, "line\n")
+        XCTAssertEqual(output, "line\r\n")
         XCTAssertFalse(output.contains("\u{1B}["))
     }
 
@@ -341,7 +359,7 @@ final class TUIRenderStrategyTests: XCTestCase {
 
         // Frame 1: 2 lines, cursor anchored on last line
         tui.requestRender(lines: ["line1", "line2"], cursorOffset: 0)
-        XCTAssertEqual(spy.outputs[0], "line1\nline2")
+        XCTAssertEqual(spy.outputs[0], "line1\r\nline2")
 
         // Frame 2: prevRows=2, wasAnchored=true, rewindRows=1
         tui.requestRender(lines: ["new1", "new2"], cursorOffset: 0)
@@ -353,7 +371,7 @@ final class TUIRenderStrategyTests: XCTestCase {
         let clearCount = output.components(separatedBy: "\u{1B}[2K").count - 1
         XCTAssertEqual(clearCount, 2, "Should clear all 2 old physical rows")
         // New frame should have no trailing \n
-        XCTAssertTrue(output.hasSuffix("new1\nnew2"))
+        XCTAssertTrue(output.hasSuffix("new1\r\nnew2"))
     }
 
     func testCursorOffsetSingleLineContinuousRender() {
@@ -375,6 +393,41 @@ final class TUIRenderStrategyTests: XCTestCase {
         XCTAssertEqual(clearCount, 1)
         // New frame should have no trailing \n
         XCTAssertTrue(output.hasSuffix("new1"))
+    }
+
+    func testInlineOverflowFallsBackToFullRedraw() {
+        let spy = OutputSpy()
+        let tui = TUI(strategy: .inlineAnchor, terminalWidth: 10, terminalHeight: 2, writer: spy.writer)
+
+        tui.requestRender(lines: ["12345678901", "tail"], cursorOffset: 0)
+
+        XCTAssertNotNil(spy.last)
+        let output = spy.last!
+        XCTAssertTrue(output.hasPrefix("\u{1B}[2J\u{1B}[H"), "Overflow frame should use full redraw path")
+        XCTAssertFalse(output.contains("\u{1B}[1A"), "Overflow fallback must not use inline rewind into viewport")
+        XCTAssertTrue(output.hasSuffix("tail"))
+    }
+
+    func testAppendFrameOutputsPlainFullFrame() {
+        let spy = OutputSpy()
+        let tui = TUI(strategy: .inlineAnchor, writer: spy.writer)
+
+        tui.appendFrame(lines: ["line1", "line2"])
+
+        XCTAssertEqual(spy.last, "line1\r\nline2\r\n")
+        XCTAssertFalse(spy.last!.contains("\u{1B}["))
+    }
+
+    func testResetRetainedFrameMakesNextInlineRenderFresh() {
+        let spy = OutputSpy()
+        let tui = TUI(strategy: .inlineAnchor, writer: spy.writer)
+
+        tui.requestRender(lines: ["old"])
+        tui.appendFrame(lines: ["stream"])
+        tui.resetRetainedFrame()
+        tui.requestRender(lines: ["new"])
+
+        XCTAssertEqual(spy.outputs.last, "new\r\n")
     }
 
     // MARK: - 12) Non-TTY fallback

@@ -24,6 +24,7 @@ public final class PlainTextMarkdownEngine: MarkdownEngine {
 public final class StreamingMarkdownEngine: MarkdownEngine {
     private var stableSource = ""
     private var stableRendered: [String] = []
+    private let maxTableContentWidth = 200
 
     public init() {}
 
@@ -97,7 +98,21 @@ public final class StreamingMarkdownEngine: MarkdownEngine {
 
         var rendered: [String] = []
         var index = 0
+        var inCodeFence = false
         while index < lines.count {
+            if isCodeFenceDelimiter(lines[index]) {
+                inCodeFence.toggle()
+                rendered.append(lines[index])
+                index += 1
+                continue
+            }
+
+            if inCodeFence {
+                rendered.append(lines[index])
+                index += 1
+                continue
+            }
+
             if let table = parseTable(lines: lines, start: index, isFinal: isFinal, endsWithNewline: endsWithNewline) {
                 rendered.append(contentsOf: table.lines)
                 index += table.consumed
@@ -134,26 +149,99 @@ public final class StreamingMarkdownEngine: MarkdownEngine {
             return nil
         }
 
-        let rendered = renderTable(header: headerCells, alignment: divider, rows: dataRows)
-        return (rendered, cursor - start)
+        if let rendered = renderTable(header: headerCells, alignment: divider, rows: dataRows) {
+            return (rendered, cursor - start)
+        }
+
+        // 超宽表格降级为纯文本，保证渲染稳定且避免布局抖动。
+        let degraded = Array(lines[start..<cursor])
+        return (degraded, cursor - start)
     }
 
-    private enum CellAlign {
-        case left
-        case center
-        case right
+    private func isCodeFenceDelimiter(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~")
+    }
+
+    private func splitRowCells(_ body: String) -> [String] {
+        var cells: [String] = []
+        var current = ""
+        var isEscaped = false
+        var inCodeSpan = false
+
+        for character in body {
+            if isEscaped {
+                current.append(character)
+                isEscaped = false
+                continue
+            }
+
+            if character == "\\" {
+                isEscaped = true
+                continue
+            }
+
+            if character == "`" {
+                inCodeSpan.toggle()
+                current.append(character)
+                continue
+            }
+
+            if character == "|", !inCodeSpan {
+                cells.append(current)
+                current.removeAll(keepingCapacity: true)
+                continue
+            }
+
+            current.append(character)
+        }
+
+        if isEscaped {
+            current.append("\\")
+        }
+
+        cells.append(current)
+        return cells
+    }
+
+    private func hasUnescapedPipe(_ text: String) -> Bool {
+        var isEscaped = false
+        var inCodeSpan = false
+
+        for character in text {
+            if isEscaped {
+                isEscaped = false
+                continue
+            }
+            if character == "\\" {
+                isEscaped = true
+                continue
+            }
+            if character == "`" {
+                inCodeSpan.toggle()
+                continue
+            }
+            if character == "|", !inCodeSpan {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func shouldDegradeWideTable(widths: [Int]) -> Bool {
+        widths.reduce(0, +) > maxTableContentWidth
     }
 
     private func parseTableCells(_ line: String) -> [String]? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.contains("|"), !trimmed.isEmpty else { return nil }
+        guard hasUnescapedPipe(trimmed), !trimmed.isEmpty else { return nil }
 
         var body = trimmed
         if body.hasPrefix("|") { body.removeFirst() }
         if body.hasSuffix("|") { body.removeLast() }
 
-        let cells = body.split(separator: "|", omittingEmptySubsequences: false)
-            .map { String($0).trimmingCharacters(in: .whitespaces) }
+        let cells = splitRowCells(body)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
 
         return cells.count >= 2 ? cells : nil
     }
@@ -177,7 +265,7 @@ public final class StreamingMarkdownEngine: MarkdownEngine {
         return aligns
     }
 
-    private func renderTable(header: [String], alignment: [CellAlign], rows: [[String]]) -> [String] {
+    private func renderTable(header: [String], alignment: [CellAlign], rows: [[String]]) -> [String]? {
         let normalizedRows = rows.map { normalize(cells: $0, count: header.count) }
         var widths = Array(repeating: 0, count: header.count)
 
@@ -189,6 +277,10 @@ public final class StreamingMarkdownEngine: MarkdownEngine {
             widths[col] = max(widths[col], 1)
         }
 
+        if shouldDegradeWideTable(widths: widths) {
+            return nil
+        }
+
         var output: [String] = []
         output.append(borderLine(left: "┌", middle: "┬", right: "┐", widths: widths))
         output.append(tableRow(cells: header, aligns: alignment, widths: widths))
@@ -198,6 +290,12 @@ public final class StreamingMarkdownEngine: MarkdownEngine {
         }
         output.append(borderLine(left: "└", middle: "┴", right: "┘", widths: widths))
         return output
+    }
+
+    private enum CellAlign {
+        case left
+        case center
+        case right
     }
 
     private func normalize(cells: [String], count: Int) -> [String] {

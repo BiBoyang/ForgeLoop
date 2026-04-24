@@ -71,7 +71,7 @@ func toRenderEvent(_ event: AgentEvent) -> RenderEvent? {
 private func adaptMessageStart(_ message: Message) -> CoreRenderEvent? {
     switch message {
     case .user(let user):
-        return .insert(lines: [Style.user("❯ " + user.text), ""])
+        return .insert(lines: prefixedLogicalLines(prefix: Style.user("❯ "), text: user.text) + [""])
     case .assistant:
         return .blockStart(id: "__assistant")
     case .tool:

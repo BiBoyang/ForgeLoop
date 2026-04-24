@@ -204,7 +204,7 @@ final class PromptControllerTests: XCTestCase {
         let controller = PromptController(agent: agent)
 
         // idle 状态下 prompt
-        try await controller.submit("hello")
+        _ = try await controller.submit("hello")
         XCTAssertEqual(agent.state.messages.count, 2)
 
         // steer 一条消息（此时 agent idle，入队但不消费）

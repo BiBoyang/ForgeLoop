@@ -254,4 +254,23 @@ final class BackgroundTaskTests: XCTestCase {
         XCTAssertFalse(result.isError)
         XCTAssertTrue(result.output.contains("[by: system]"))
     }
+
+    // MARK: - 14) Cancel all running tasks
+
+    func testCancelAllCancelsOnlyRunningTasks() async throws {
+        let manager = BackgroundTaskManager()
+        _ = await manager.start(command: "sleep 10", cwd: "/tmp")
+        _ = await manager.start(command: "sleep 10", cwd: "/tmp")
+        _ = await manager.start(command: "echo done", cwd: "/tmp")
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        let cancelledCount = await manager.cancelAll(by: "bulk-test")
+        XCTAssertEqual(cancelledCount, 2)
+
+        let allTasks = await manager.status()
+        let cancelled = allTasks.filter { $0.status == .cancelled }
+        XCTAssertEqual(cancelled.count, 2)
+        XCTAssertTrue(cancelled.allSatisfy { $0.cancelledBy == "bulk-test" })
+    }
 }

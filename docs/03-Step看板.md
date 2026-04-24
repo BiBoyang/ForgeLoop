@@ -53,6 +53,13 @@
 | PB-002 | MarkdownEngine 流式增量 + 表格渲染最小闭环 | Done | AI | 新增 `StreamingMarkdownEngine`（stable boundary + 未闭合降级），接入 `TranscriptRenderer` 并补测试 |
 | PB-003 | TUI 测试 warning 清零（deprecated/actor-isolation） | Done | AI | 重写 `CoreRenderEventAdapterTests` 为 Agent→Core 对照；清理 LayoutRendererTests actor 告警；`ForgeLoopCliTests` warning clean |
 | PB-004 | TranscriptRenderer* 测试迁移到纯 `applyCore` 路径 | Done | AI | `TranscriptRendererTests` + `TranscriptRendererToolResultTests` 移除 legacy `apply(_:)` 依赖；保持语义断言不变并通过 warning 扫描 |
+| PB-005 | TUI 稳定性修复（Esc 语义 + 合帧默认 + Markdown 兜底） | Done | AI | Esc: streaming abort/idle+bg killAll；RenderLoop 默认开启（`FORGELOOP_TUI_RENDER_LOOP=0` 可关闭）；代码块/转义管道/超宽表格稳定渲染 |
+| PB-006 | TUI 行首对齐修复（TTY 统一 CRLF） | Done | AI | TTY 渲染统一使用 `\\r\\n`，修复 raw 模式首屏/多行“整体右移”；non-TTY 仍保持 `\\n` |
+| PB-007 | TUI 小终端溢出安全重绘 + 多行逻辑行规范化 | Done | AI | 超过视口高度时 `inlineAnchor` 自动降级全帧重绘；用户消息/输入按逻辑行拆分，避免 `\\n` 破坏行模型 |
+| PB-008 | TUI streaming 自然追加输出 + stdout EAGAIN 加固 | Done | AI | TTY streaming 改为直接追加完整 frame，避免擦除 scrollback；默认 stdout writer 改为 POSIX `write` 循环处理 `EAGAIN/EINTR` |
+| PB-009 | TUI streaming transcript 增量输出降噪 | Done | AI | 不再整帧重复输出 transcript/header/prompt；TTY streaming 只追加 transcript 稳定增量，idle footer 单独渲染 |
+| PB-010 | Streaming planner 上移到 `ForgeLoopTUI` | Done | AI | `StreamingTranscriptAppendState` 从 `ForgeLoopCli` 迁移到 `ForgeLoopTUI` target，并同步独立仓库 |
+| PB-011 | `ForgeLoopCliTests` 性能门禁重校准 | Done | AI | 更新 `render-small-first` / `render-medium-first` 基线，`ForgeLoopCliTests` 208/208 全绿 |
 
 ## Phase 3 建议执行顺序（V2）
 
