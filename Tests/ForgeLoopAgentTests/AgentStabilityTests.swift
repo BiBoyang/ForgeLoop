@@ -299,6 +299,157 @@ final class AgentStabilityTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(agent.state.messages.count, 4)
     }
 
+    // MARK: - 8) auto-compact: 低于阈值不触发
+
+    func testAutoCompactBelowThresholdDoesNotTrigger() async throws {
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+        // 预填充 20 条消息（低于默认阈值 24）
+        for i in 0..<10 {
+            agent.state.messages.append(.user(UserMessage(text: "user \(i)")))
+            agent.state.messages.append(.assistant(AssistantMessage.text("assistant \(i)", stopReason: .endTurn)))
+        }
+        XCTAssertEqual(agent.state.messages.count, 20)
+
+        let result = agent.state.maybeAutoCompact()
+
+        XCTAssertNil(result)
+        XCTAssertEqual(agent.state.messages.count, 20)
+    }
+
+    // MARK: - 9) auto-compact: 超过阈值触发
+
+    func testAutoCompactAboveThresholdTriggers() async throws {
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+        // 预填充 26 条消息（超过默认阈值 24）
+        for i in 0..<13 {
+            agent.state.messages.append(.user(UserMessage(text: "user \(i)")))
+            agent.state.messages.append(.assistant(AssistantMessage.text("assistant \(i)", stopReason: .endTurn)))
+        }
+        XCTAssertEqual(agent.state.messages.count, 26)
+
+        let result = agent.state.maybeAutoCompact()
+
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.before, 26)
+        XCTAssertEqual(result?.after, 10)
+    }
+
+    // MARK: - 10) auto-compact: 事件在 prompt 结束后发出
+
+    func testAutoCompactEventEmittedAfterPrompt() async throws {
+        _ = await registerBuiltins(sourceId: "test-builtins-auto-compact")
+        defer {
+            Task { await APIRegistry.shared.unregisterSource("test-builtins-auto-compact") }
+        }
+
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+        // 预填充 24 条消息，再发一条 user prompt 就会变成 26 条（超过阈值）
+        for i in 0..<12 {
+            agent.state.messages.append(.user(UserMessage(text: "user \(i)")))
+            agent.state.messages.append(.assistant(AssistantMessage.text("assistant \(i)", stopReason: .endTurn)))
+        }
+        XCTAssertEqual(agent.state.messages.count, 24)
+
+        let collector = EventCollector()
+        _ = agent.subscribe { event, _ in
+            await collector.append(event)
+        }
+
+        try await agent.prompt("trigger compact")
+
+        let compactEvents = await collector.events.filter {
+            if case .contextCompacted = $0 { return true }
+            return false
+        }
+        XCTAssertEqual(compactEvents.count, 1)
+        if case .contextCompacted(let before, let after) = compactEvents.first {
+            XCTAssertEqual(before, 26) // 24 + user + assistant
+            XCTAssertEqual(after, 10)
+        }
+    }
+
+    // MARK: - 11) auto-compact: 阈值可配置
+
+    func testAutoCompactThresholdIsConfigurable() async throws {
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+        agent.state.autoCompactThreshold = 6
+
+        for i in 0..<7 {
+            agent.state.messages.append(.user(UserMessage(text: "user \(i)")))
+            agent.state.messages.append(.assistant(AssistantMessage.text("assistant \(i)", stopReason: .endTurn)))
+        }
+        XCTAssertEqual(agent.state.messages.count, 14)
+
+        let result = agent.state.maybeAutoCompact()
+
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.before, 14)
+        XCTAssertEqual(result?.after, 10)
+    }
+
+    // MARK: - 12) auto-compact: minGap 阻止频繁触发
+
+    func testAutoCompactMinGapPreventsFrequentTrigger() async throws {
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+        agent.state.autoCompactThreshold = 10
+        agent.state.autoCompactKeepCount = 5
+        agent.state.autoCompactMinGap = 10
+
+        // 第一次：15 条消息，超过阈值 10，且 15 - 0 = 15 >= minGap 10
+        for i in 0..<8 {
+            agent.state.messages.append(.user(UserMessage(text: "user \(i)")))
+            agent.state.messages.append(.assistant(AssistantMessage.text("assistant \(i)", stopReason: .endTurn)))
+        }
+        agent.state.messages.append(.user(UserMessage(text: "extra")))
+        XCTAssertEqual(agent.state.messages.count, 17)
+
+        let result1 = agent.state.maybeAutoCompact()
+        XCTAssertNotNil(result1)
+        XCTAssertEqual(result1?.after, 5)
+
+        // 第二次：从 5 增长到 14（新增 9 条），14 > 10 但 14 - 5 = 9 < minGap 10
+        for i in 0..<4 {
+            agent.state.messages.append(.user(UserMessage(text: "follow-up \(i)")))
+            agent.state.messages.append(.assistant(AssistantMessage.text("resp \(i)", stopReason: .endTurn)))
+        }
+        agent.state.messages.append(.user(UserMessage(text: "one more")))
+        XCTAssertEqual(agent.state.messages.count, 14)
+
+        let result2 = agent.state.maybeAutoCompact()
+        XCTAssertNil(result2, "Should not trigger because minGap not satisfied: 14 - 5 = 9 < 10")
+
+        // 第三次：再增加到 20，20 - 5 = 15 >= minGap 10
+        for i in 0..<3 {
+            agent.state.messages.append(.user(UserMessage(text: "final \(i)")))
+            agent.state.messages.append(.assistant(AssistantMessage.text("final resp \(i)", stopReason: .endTurn)))
+        }
+        XCTAssertEqual(agent.state.messages.count, 20)
+
+        let result3 = agent.state.maybeAutoCompact()
+        XCTAssertNotNil(result3, "Should trigger because minGap is now satisfied: 20 - 5 = 15 >= 10")
+        XCTAssertEqual(result3?.after, 5)
+    }
+
+    // MARK: - 13) auto-compact: keepCount 可配置
+
+    func testAutoCompactKeepCountIsConfigurable() async throws {
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+        agent.state.autoCompactThreshold = 10
+        agent.state.autoCompactKeepCount = 5
+
+        for i in 0..<6 {
+            agent.state.messages.append(.user(UserMessage(text: "user \(i)")))
+            agent.state.messages.append(.assistant(AssistantMessage.text("assistant \(i)", stopReason: .endTurn)))
+        }
+        XCTAssertEqual(agent.state.messages.count, 12)
+
+        let result = agent.state.maybeAutoCompact()
+
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.before, 12)
+        XCTAssertEqual(result?.after, 5)
+    }
+
     // MARK: - 7) 长链路：prompt → tool → bg → continue → final
 
     func testLongChainPromptToolBgContinueFinal() async throws {

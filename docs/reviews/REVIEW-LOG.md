@@ -438,3 +438,42 @@
   - `swift test --filter CodingTUIStatusTests`（7 passed）
   - `swift test --filter ForgeLoopCliTests`（227 passed）
   - `cd /Users/boyang/Desktop/WebKit_build/ForgeLoopTUI && swift test --filter TUITests`（6 passed）
+
+- Post-v0.1.1 / PB-021（Queue / Attachment / Notice 收口）完成：
+  - `CodingTUI` 引入 `FooterNotice` 与优先级策略，明确 status bar / footer notice / transcript 三层职责边界；
+  - 统一 footer 临时反馈替换规则（新优先级 `>=` 旧优先级时覆盖），并在输入与提交路径自动清理；
+  - 状态栏 badge 顺序收敛为 tools → queued → attachments → background。
+- 验证通过：
+  - `swift test --filter CodingTUIStatusTests`（21 passed）
+  - `swift test --filter ForgeLoopCliTests`（280 passed）
+
+- Post-v0.1.1 / PB-022（Attachment 体验增强）完成：
+  - `AttachmentRecord.displayPreview` 增加单行归一化（`\r\n/\r/\n -> 空格`），避免多行内容破坏 `/attachments` 列表布局；
+  - `/attachments [clear]` 与 `/detach all` 行为一致，清空反馈文案统一为自然复数；
+  - 附件保留模式提醒保持“双锚点”：status badge + 输入区提示。
+- 验证通过：
+  - `swift test --filter AttachmentStoreTests`（19 passed）
+  - `swift test --filter SlashCommandsTests`（28 passed）
+
+- Post-v0.1.1 / PB-023（`/queue` 二期能力）完成：
+  - 新增 `queueMessagePreview(...)`：统一换行归一化与 50 字截断；
+  - `/queue` 限制显示前 5 条并补 `... and N more`；
+  - 新增 `/queue clear`，直接清理 steering queue 并返回自然复数反馈。
+- 验证通过：
+  - `swift test --filter SlashCommandsTests`（32 passed）
+
+- Post-v0.1.1 / PB-024（auto-compact 二期）完成：
+  - `AgentState` 新增 `autoCompactKeepCount`、`autoCompactMinGap` 与 `lastCompactedMessageCount`，抑制频繁 compact；
+  - `CodingTUI` 状态栏新增 `compacted` badge，并在输入/提交/slash/后台取消路径清除；
+  - compact 提示策略保持“可见但不过度打扰”：footer notice + status badge 分层呈现。
+- 验证通过：
+  - `swift test --filter AgentStabilityTests`（13 passed）
+  - `swift test --filter CodingTUIStatusTests`（23 passed）
+
+- Post-v0.1.1 / PB-025A（工具防分页器卡住）完成：
+  - `ProcessRunner` 注入非交互环境：`PAGER=cat`、`GIT_PAGER=cat`、`MANPAGER=cat`、`SYSTEMD_PAGER=cat`；
+  - `ProcessRunner` 将 `stdin` 指向 `FileHandle.nullDevice`，避免命令等待交互输入挂住；
+  - `bash` 与 `bg` 两条工具路径自动继承，无需额外分叉实现。
+- 验证通过：
+  - `swift test --filter BashToolTests`（10 passed）
+  - `swift test --filter BackgroundTaskTests`（19 passed）

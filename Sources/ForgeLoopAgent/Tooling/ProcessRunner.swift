@@ -32,6 +32,17 @@ public enum ProcessRunner {
             process.currentDirectoryURL = URL(fileURLWithPath: cwd)
         }
 
+        // 注入非交互环境：禁用分页器，避免命令因交互式行为卡住
+        var env = ProcessInfo.processInfo.environment
+        env["PAGER"] = "cat"
+        env["GIT_PAGER"] = "cat"
+        env["MANPAGER"] = "cat"
+        env["SYSTEMD_PAGER"] = "cat"
+        process.environment = env
+
+        // 将 stdin 指向 /dev/null，防止非交互命令等待输入挂住
+        process.standardInput = FileHandle.nullDevice
+
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         process.standardOutput = stdoutPipe

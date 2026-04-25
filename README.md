@@ -31,6 +31,9 @@ If you want to tune this app-level behavior, update `forgeLoopMarkdownRenderOpti
 - slash command feedback such as `/help`, `/compact`, and model switch notices now appears in the footer notice area
 - the footer status bar now distinguishes `ready`, `generating`, `aborting`, `selecting model`, and `background tasks`
 - the footer also shows live badges for pending tools, running/failed/cancelled background tasks, and queued follow-up messages
+- `/queue` supports normalized previews, top-5 output with `... and N more`, and `/queue clear`
+- attachment commands are available: `/attach`, `/attachments [clear]`, `/detach`
+- auto-compact feedback appears as footer notice, and recent compaction state is shown via status badge
 
 ## Related Projects
 
@@ -43,3 +46,10 @@ If you want to tune this app-level behavior, update `forgeLoopMarkdownRenderOpti
 - `coding-agent`
 - `llm-agent`
 - `terminal-ui`
+
+## Open Source
+
+- License: MIT (`LICENSE`)
+- Contribution guide: `CONTRIBUTING.md`
+- Security policy: `SECURITY.md`
+- Community expectations: `CODE_OF_CONDUCT.md`

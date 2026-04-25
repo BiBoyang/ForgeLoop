@@ -30,6 +30,8 @@ func toCoreRenderEvent(_ event: AgentEvent) -> CoreRenderEvent? {
         )
     case .toolExecutionEnd(let toolCallId, _, let isError, let summary):
         return .operationEnd(id: toolCallId, isError: isError, result: summary)
+    case .contextCompacted:
+        return nil
     }
 }
 
@@ -63,6 +65,8 @@ func toRenderEvent(_ event: AgentEvent) -> RenderEvent? {
         return .toolExecutionStart(toolCallId: toolCallId, toolName: toolName, args: args)
     case .toolExecutionEnd(let toolCallId, let toolName, let isError, let summary):
         return .toolExecutionEnd(toolCallId: toolCallId, toolName: toolName, isError: isError, summary: summary)
+    case .contextCompacted:
+        return nil
     }
 }
 

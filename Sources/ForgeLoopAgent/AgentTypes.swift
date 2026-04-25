@@ -34,6 +34,7 @@ public enum AgentEvent: Sendable {
     case messageEnd(message: Message)
     case toolExecutionStart(toolCallId: String, toolName: String, args: String)
     case toolExecutionEnd(toolCallId: String, toolName: String, isError: Bool, summary: String?)
+    case contextCompacted(before: Int, after: Int)
 
     public var type: String {
         switch self {
@@ -46,6 +47,7 @@ public enum AgentEvent: Sendable {
         case .messageEnd: return "message_end"
         case .toolExecutionStart: return "tool_execution_start"
         case .toolExecutionEnd: return "tool_execution_end"
+        case .contextCompacted: return "context_compacted"
         }
     }
 }

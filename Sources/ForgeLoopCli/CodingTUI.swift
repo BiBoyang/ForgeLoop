@@ -43,7 +43,9 @@ struct CodingStatusSnapshot: Sendable, Equatable {
     let phase: CodingStatusPhase
     let pendingToolCount: Int
     let queuedMessageCount: Int
+    let attachmentCount: Int
     let backgroundTasks: BackgroundTaskSummary
+    let didCompactRecently: Bool
 }
 
 func summarizeBackgroundTasks(_ tasks: [BackgroundTaskRecord]) -> BackgroundTaskSummary {
@@ -105,6 +107,12 @@ func makeStatusLines(snapshot: CodingStatusSnapshot) -> [String] {
     if snapshot.pendingToolCount > 0 {
         badges.append("\(snapshot.pendingToolCount) tool\(snapshot.pendingToolCount == 1 ? "" : "s") pending")
     }
+    if snapshot.queuedMessageCount > 0 {
+        badges.append("\(snapshot.queuedMessageCount) queued")
+    }
+    if snapshot.attachmentCount > 0 {
+        badges.append("\(snapshot.attachmentCount) attachment\(snapshot.attachmentCount == 1 ? "" : "s")")
+    }
     if snapshot.backgroundTasks.runningCount > 0 {
         badges.append("\(snapshot.backgroundTasks.runningCount) bg running")
     }
@@ -114,8 +122,8 @@ func makeStatusLines(snapshot: CodingStatusSnapshot) -> [String] {
     if snapshot.backgroundTasks.cancelledCount > 0 {
         badges.append("\(snapshot.backgroundTasks.cancelledCount) bg cancelled")
     }
-    if snapshot.queuedMessageCount > 0 {
-        badges.append("\(snapshot.queuedMessageCount) queued")
+    if snapshot.didCompactRecently {
+        badges.append("compacted")
     }
 
     if !badges.isEmpty {
@@ -123,6 +131,17 @@ func makeStatusLines(snapshot: CodingStatusSnapshot) -> [String] {
     }
 
     return lines
+}
+
+/// 生成输入区 lines。附件提示放在输入行上方，保证输入行始终是最后一行（光标锚点）。
+func makeInputLines(inputLine: String, attachmentCount: Int) -> [String] {
+    if attachmentCount > 0 {
+        return [
+            Style.dimmed("  \(attachmentCount) attachment\(attachmentCount == 1 ? "" : "s")"),
+            inputLine,
+        ]
+    }
+    return [inputLine]
 }
 
 func makeFooterNoticeLines(_ text: String) -> [String] {
@@ -138,6 +157,50 @@ func makeFooterNoticeLines(_ text: String) -> [String] {
         }
         return Style.dimmed(line)
     }
+}
+
+// MARK: - Footer Notice
+
+/// Footer notice 的统一封装，用于管理 status bar 下方的临时反馈。
+///
+/// 职责边界（三者不可混淆）：
+/// - Status bar（状态栏）= 持续状态：model、phase、badges（attachment count、queued count 等）。
+///   始终可见，反映当前运行态，不由用户命令直接写入。
+/// - Footer notice（底部通知）= 临时反馈：/compact、/attach、auto-compact 等一次性提示。
+///   用户输入或新提交时自动清除。
+/// - Transcript（对话区）= 真正对话内容：用户消息和 AI 回复。
+///   slash 命令的反馈绝不塞入 transcript。
+///
+/// 替换规则：
+/// - 新 notice 优先级 >= 旧 notice 时覆盖
+/// - 当前无 notice 时直接接受
+/// - 用户任何输入操作（打字、删除、移动光标等）清除所有 notice
+/// - .submitted（提交成功）清除所有 notice
+struct FooterNotice: Equatable {
+    let lines: [String]
+    let priority: Priority
+
+    enum Priority: Int, Comparable {
+        case info = 0      // auto-compact 等自动触发
+        case command = 1   // slash 命令反馈 (/queue, /attachments, /compact 等)
+        case error = 2     // 错误提示
+
+        static func < (lhs: Priority, rhs: Priority) -> Bool {
+            lhs.rawValue < rhs.rawValue
+        }
+    }
+
+    init(text: String, priority: Priority) {
+        self.lines = makeFooterNoticeLines(text)
+        self.priority = priority
+    }
+}
+
+/// 决定是否用新 notice 替换当前 notice。
+/// 规则：新优先级 >= 旧优先级时替换；当前无 notice 时直接接受。
+func resolveFooterNotice(current: FooterNotice?, incoming: FooterNotice) -> FooterNotice {
+    guard let current = current else { return incoming }
+    return incoming.priority >= current.priority ? incoming : current
 }
 
 // MARK: - KeyAction
@@ -288,7 +351,8 @@ func runCodingTUIInternal(
     var queueLines: [String] = []
     var backgroundTaskSummary = BackgroundTaskSummary()
     var isAbortRequested = false
-    var footerNoticeLines: [String] = []
+    var activeFooterNotice: FooterNotice? = nil
+    var didCompactRecently = false
     var lastTerminalSize: TerminalSize? = getTerminalSize()
 
 
@@ -318,7 +382,7 @@ func runCodingTUIInternal(
     ) -> FooterRenderState {
         var footerLayout = Layout()
         footerLayout.queue = queueLines
-        footerLayout.status = footerNoticeLines + statusLines
+        footerLayout.status = (activeFooterNotice?.lines ?? []) + statusLines
 
         if let activeModelPicker {
             let inputLines = pickerRenderer.render(state: activeModelPicker)
@@ -328,7 +392,7 @@ func runCodingTUIInternal(
         }
 
         let inputRender = inputState.render(prefix: "❯ ", totalWidth: config.terminalWidth)
-        let inputLines = [inputRender.line]
+        let inputLines = makeInputLines(inputLine: inputRender.line, attachmentCount: attachmentStore.count)
         footerLayout.input = inputLines
         let frame = layoutRenderer.render(layout: footerLayout, config: config)
         return FooterRenderState(inputLines: inputLines, frame: frame, cursorOffset: inputRender.cursorOffset)
@@ -348,7 +412,9 @@ func runCodingTUIInternal(
                 ),
                 pendingToolCount: renderer.pendingToolCount,
                 queuedMessageCount: agent.queuedSteeringMessages().count,
-                backgroundTasks: backgroundTaskSummary
+                attachmentCount: attachmentStore.count,
+                backgroundTasks: backgroundTaskSummary,
+                didCompactRecently: didCompactRecently
             )
         )
 
@@ -379,7 +445,7 @@ func runCodingTUIInternal(
             fullLayout.transcript = renderer.transcriptLines
             fullLayout.pinnedTranscriptRange = renderer.preferredPinnedRange
             fullLayout.queue = queueLines
-            fullLayout.status = footerNoticeLines + statusLines
+            fullLayout.status = (activeFooterNotice?.lines ?? []) + statusLines
             fullLayout.input = footerRender.inputLines
             let frame = layoutRenderer.render(layout: fullLayout, config: config)
             outputFrame(frame, nil, priority)
@@ -422,6 +488,8 @@ func runCodingTUIInternal(
         outputFrame(footerRender.frame, footerRender.cursorOffset, priority)
     }
 
+    let attachmentStore = AttachmentStore()
+
     _ = agent.subscribe { event, _ in
         await MainActor.run {
             let eventPriority: RenderLoop.Priority = {
@@ -435,6 +503,15 @@ func runCodingTUIInternal(
 
             if let coreEvent = toCoreRenderEvent(event) {
                 renderer.applyCore(coreEvent)
+            }
+
+            if case .contextCompacted(let before, let after) = event {
+                didCompactRecently = true
+                let notice = FooterNotice(
+                    text: "Auto-compacted context: \(before) → \(after) messages",
+                    priority: .info
+                )
+                activeFooterNotice = resolveFooterNotice(current: activeFooterNotice, incoming: notice)
             }
 
             let currentModel = agent.state.model
@@ -473,13 +550,15 @@ func runCodingTUIInternal(
                     ),
                     pendingToolCount: renderer.pendingToolCount,
                     queuedMessageCount: agent.queuedSteeringMessages().count,
-                    backgroundTasks: backgroundTaskSummary
+                    attachmentCount: attachmentStore.count,
+                    backgroundTasks: backgroundTaskSummary,
+                    didCompactRecently: didCompactRecently
                 )
             )
             let footerRender: FooterRenderState = {
                 var footerLayout = Layout()
                 footerLayout.queue = queueLines
-                footerLayout.status = footerNoticeLines + statusLines
+                footerLayout.status = (activeFooterNotice?.lines ?? []) + statusLines
 
                 if let activeModelPicker {
                     let inputLines = pickerRenderer.render(state: activeModelPicker)
@@ -489,7 +568,7 @@ func runCodingTUIInternal(
                 }
 
                 let inputRender = inputState.render(prefix: "❯ ", totalWidth: config.terminalWidth)
-                let inputLines = [inputRender.line]
+                let inputLines = makeInputLines(inputLine: inputRender.line, attachmentCount: attachmentStore.count)
                 footerLayout.input = inputLines
                 let frame = layoutRenderer.render(layout: footerLayout, config: config)
                 return FooterRenderState(
@@ -505,7 +584,7 @@ func runCodingTUIInternal(
                 fullLayout.transcript = renderer.transcriptLines
                 fullLayout.pinnedTranscriptRange = renderer.preferredPinnedRange
                 fullLayout.queue = queueLines
-                fullLayout.status = footerNoticeLines + statusLines
+                fullLayout.status = (activeFooterNotice?.lines ?? []) + statusLines
                 fullLayout.input = footerRender.inputLines
                 let frame = layoutRenderer.render(
                     layout: fullLayout,
@@ -552,8 +631,9 @@ func runCodingTUIInternal(
         }
     }
 
+    let controller = PromptController(agent: agent, modelStore: modelStore, attachmentStore: attachmentStore)
+
     let keyEvents = await runner.run()
-    let controller = PromptController(agent: agent, modelStore: modelStore)
 
     // 后台 queue 监视
     let bgMonitor = Task { @MainActor in
@@ -568,10 +648,12 @@ func runCodingTUIInternal(
         switch result {
         case .submitted:
             isAbortRequested = false
-            footerNoticeLines = []
+            activeFooterNotice = nil
+            didCompactRecently = false
             return true
         case .feedback(let text):
-            footerNoticeLines = makeFooterNoticeLines(text)
+            activeFooterNotice = FooterNotice(text: text, priority: .command)
+            didCompactRecently = false
             renderFrame(priority: .immediate)
             return true
         case .showModelPicker(let state):
@@ -636,35 +718,39 @@ func runCodingTUIInternal(
 
         switch action {
         case .insert(let c):
-            footerNoticeLines = []
+            activeFooterNotice = nil
+            didCompactRecently = false
             inputState.handle(.insert(c))
             renderFrame(priority: .immediate)
 
         case .delete:
-            footerNoticeLines = []
+            activeFooterNotice = nil
+            didCompactRecently = false
             inputState.handle(.backspace)
             renderFrame(priority: .immediate)
 
         case .deleteForward:
-            footerNoticeLines = []
+            activeFooterNotice = nil
+            didCompactRecently = false
             inputState.handle(.deleteForward)
             renderFrame(priority: .immediate)
 
         case .submit:
             let submittedText = inputState.text
             let trimmed = submittedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let hasAttachments = !attachmentStore.isEmpty
             inputHistory.commit(submittedText)
             inputState.handle(.clear)
             renderFrame(priority: .immediate)
 
-            if !trimmed.isEmpty {
+            if !trimmed.isEmpty || hasAttachments {
                 do {
                     let result = try await controller.submit(trimmed)
                     if !handleSubmitResult(result) {
                         return
                     }
                 } catch {
-                    footerNoticeLines = makeFooterNoticeLines("[error] \(error)")
+                    activeFooterNotice = FooterNotice(text: "[error] \(error)", priority: .error)
                     renderFrame(priority: .immediate)
                 }
             }
@@ -686,7 +772,8 @@ func runCodingTUIInternal(
             switch intent {
             case .abortStreaming:
                 isAbortRequested = true
-                footerNoticeLines = []
+                activeFooterNotice = nil
+                didCompactRecently = false
                 agent.abort()
                 inputState.handle(.clear)
                 inputHistory.reset()
@@ -694,11 +781,13 @@ func runCodingTUIInternal(
 
             case .killBackgroundTasks:
                 isAbortRequested = false
+                didCompactRecently = false
                 if let bgManager = agent.backgroundTaskManager {
                     let cancelledCount = await bgManager.cancelAll(by: "user")
                     if cancelledCount > 0 {
-                        footerNoticeLines = makeFooterNoticeLines(
-                            "cancelled \(cancelledCount) background task\(cancelledCount == 1 ? "" : "s")"
+                        activeFooterNotice = FooterNotice(
+                            text: "cancelled \(cancelledCount) background task\(cancelledCount == 1 ? "" : "s")",
+                            priority: .command
                         )
                     }
                     await refreshQueueLines()
@@ -709,7 +798,8 @@ func runCodingTUIInternal(
 
             case .clearInput:
                 isAbortRequested = false
-                footerNoticeLines = []
+                activeFooterNotice = nil
+                didCompactRecently = false
                 inputState.handle(.clear)
                 inputHistory.reset()
                 renderFrame(priority: .immediate)
@@ -721,14 +811,16 @@ func runCodingTUIInternal(
             return
 
         case .historyPrev:
-            footerNoticeLines = []
+            activeFooterNotice = nil
+            didCompactRecently = false
             if let text = inputHistory.prev() {
                 inputState.handle(.replace(text))
                 renderFrame(priority: .immediate)
             }
 
         case .historyNext:
-            footerNoticeLines = []
+            activeFooterNotice = nil
+            didCompactRecently = false
             if let text = inputHistory.next() {
                 inputState.handle(.replace(text))
                 renderFrame(priority: .immediate)
@@ -738,27 +830,32 @@ func runCodingTUIInternal(
             }
 
         case .moveLeft:
-            footerNoticeLines = []
+            activeFooterNotice = nil
+            didCompactRecently = false
             inputState.handle(.moveLeft)
             renderFrame(priority: .immediate)
 
         case .moveRight:
-            footerNoticeLines = []
+            activeFooterNotice = nil
+            didCompactRecently = false
             inputState.handle(.moveRight)
             renderFrame(priority: .immediate)
 
         case .moveToStart:
-            footerNoticeLines = []
+            activeFooterNotice = nil
+            didCompactRecently = false
             inputState.handle(.moveToStart)
             renderFrame(priority: .immediate)
 
         case .moveToEnd:
-            footerNoticeLines = []
+            activeFooterNotice = nil
+            didCompactRecently = false
             inputState.handle(.moveToEnd)
             renderFrame(priority: .immediate)
 
         case .paste(let text):
-            footerNoticeLines = []
+            activeFooterNotice = nil
+            didCompactRecently = false
             inputState.handle(.insertText(text))
             renderFrame(priority: .immediate)
 

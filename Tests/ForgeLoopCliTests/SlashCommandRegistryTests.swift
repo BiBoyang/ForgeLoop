@@ -19,6 +19,10 @@ final class SlashCommandRegistryTests: XCTestCase {
 
         XCTAssertNotNil(registry.command(named: "/model"))
         XCTAssertNotNil(registry.command(named: "/compact"))
+        XCTAssertNotNil(registry.command(named: "/queue"))
+        XCTAssertNotNil(registry.command(named: "/attach"))
+        XCTAssertNotNil(registry.command(named: "/attachments"))
+        XCTAssertNotNil(registry.command(named: "/detach"))
         XCTAssertNotNil(registry.command(named: "/help"))
         XCTAssertNotNil(registry.command(named: "/exit"))
     }
@@ -29,7 +33,7 @@ final class SlashCommandRegistryTests: XCTestCase {
 
         let result = registry.execute(
             "/quit",
-            context: SlashCommandContext(agent: agent, modelStore: nil)
+            context: SlashCommandContext(agent: agent, modelStore: nil, attachmentStore: AttachmentStore())
         )
 
         XCTAssertEqual(result, .exit)
@@ -40,6 +44,7 @@ final class SlashCommandRegistryTests: XCTestCase {
 
         XCTAssertTrue(helpText.contains("/model"))
         XCTAssertTrue(helpText.contains("/compact"))
+        XCTAssertTrue(helpText.contains("/queue"))
         XCTAssertTrue(helpText.contains("/help"))
         XCTAssertTrue(helpText.contains("/exit, /quit"))
     }
@@ -50,11 +55,11 @@ final class SlashCommandRegistryTests: XCTestCase {
 
         let result = registry.execute(
             "/unknown",
-            context: SlashCommandContext(agent: agent, modelStore: nil)
+            context: SlashCommandContext(agent: agent, modelStore: nil, attachmentStore: AttachmentStore())
         )
 
         if case .feedback(let text) = result {
-            XCTAssertTrue(text.contains("Available: /model, /compact, /help, /exit"))
+            XCTAssertTrue(text.contains("Available: /model, /compact, /queue, /attach, /attachments, /detach, /help, /exit"))
         } else {
             XCTFail("Expected feedback result")
         }

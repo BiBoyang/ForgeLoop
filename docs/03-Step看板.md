@@ -64,6 +64,16 @@
 | PB-013 | ForgeLoop 主仓接入 `TextInputState` 与 `/model` picker | Done | AI | `CodingTUI` 改用 `TextInputState` + 真光标偏移；`/model` 空参数打开 `ListPickerState/ListPickerRenderer`；`ForgeLoopCliTests` 215/215 全绿 |
 | PB-014 | ForgeLoop 状态栏升级 | Done | AI | 状态栏升级为 phase + badges：`ready/generating/aborting/selecting model/background tasks`，并显示 tools/bg/queued 信息；`ForgeLoopCliTests` 221/221 全绿 |
 | PB-015 | Slash registry 与命令反馈可见性收口 | Done | AI | `PromptController` 改接 `SlashCommandRegistry`；`/help` 等反馈改走 footer notice；补齐 DeepSeek picker 与 cursor-anchor hotfix；`ForgeLoopCliTests` 227/227 全绿 |
+| PB-016 | `/queue` 最小命令闭环 | Done | AI | `/queue` 可见性与 streaming 并存语义落地，队列消费后空态可观测 |
+| PB-017 | auto-compact 最小事件闭环 | Done | AI | `context_compacted` 事件与 CLI footer notice 打通，Agent 稳定性测试补齐 |
+| PB-018 | AttachmentStore 接入 CLI | Done | AI | 附件存储、注入与状态 badge 联通，不下沉到 `ForgeLoopTUI` |
+| PB-019 | 空输入 + 附件提交规则 | Done | AI | 保留模式下支持“空输入仅附件提交”，补齐 `PromptController` 语义测试 |
+| PB-020 | 附件 slash 命令首版 | Done | AI | `/attach` `/attachments` `/detach` + `/help` 覆盖通过 |
+| PB-021 | Queue/Attachment/Notice 收口 | Done | AI | 统一 status/footer/transcript 边界，`FooterNotice` 优先级与覆盖规则落地 |
+| PB-022 | Attachment 体验增强 | Done | AI | preview 单行归一化、`/attachments clear` 别名、文案与清空行为一致化 |
+| PB-023 | `/queue` 二期能力 | Done | AI | 预览归一化 + 50 字截断 + top-5 + `... and N more` + `/queue clear` |
+| PB-024 | auto-compact 二期 | Done | AI | `keepCount/minGap` 可配置，compact badge 可见且随输入清除 |
+| PB-025A | 工具防分页器卡住 | Done | AI | `ProcessRunner` 注入 `PAGER/GIT_PAGER/MANPAGER/SYSTEMD_PAGER=cat` + `stdin=/dev/null`，`bash/bg` 路径验证通过 |
 
 ## Phase 3 建议执行顺序（V2）
 

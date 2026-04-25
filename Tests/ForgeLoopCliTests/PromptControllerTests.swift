@@ -288,6 +288,201 @@ final class PromptControllerTests: XCTestCase {
         XCTAssertEqual(agent.state.messages[4].role, "user")
         XCTAssertEqual(agent.state.messages[5].role, "assistant")
     }
+
+    // MARK: - /queue 在 continue 消费后显示为空
+
+    func testQueueEmptyAfterContinueConsumesMessages() async throws {
+        let provider = MutableStreamProvider()
+
+        let stream1 = AssistantMessageStream()
+        provider.stream = stream1
+
+        let streamFn: StreamFn = { _, _, _ in provider.stream }
+        let agent = Agent(initialState: AgentInitialState(model: testModel), streamFn: streamFn)
+        let controller = PromptController(agent: agent)
+
+        let task1 = Task {
+            _ = try await controller.submit("init")
+        }
+        stream1.end(AssistantMessage.text("response", stopReason: .endTurn))
+        try await task1.value
+
+        let stream2 = AssistantMessageStream()
+        provider.stream = stream2
+
+        let task2 = Task {
+            _ = try await controller.submit("next")
+        }
+
+        var a2 = 0
+        while !agent.state.isStreaming {
+            await Task.yield()
+            a2 += 1
+            if a2 > 1000 {
+                XCTFail("Timeout")
+                stream2.end(AssistantMessage.text("timeout", stopReason: .endTurn))
+                return
+            }
+        }
+
+        _ = try? await controller.submit("queued message")
+        XCTAssertEqual(agent.queuedSteeringMessages().count, 1)
+
+        stream2.end(AssistantMessage.text("done", stopReason: .endTurn))
+        try await task2.value
+
+        // continue 消费队列
+        let stream3 = AssistantMessageStream()
+        provider.stream = stream3
+
+        let task3 = Task {
+            try await agent.continue()
+        }
+        stream3.end(AssistantMessage.text("final", stopReason: .endTurn))
+        try await task3.value
+
+        XCTAssertTrue(agent.queuedSteeringMessages().isEmpty)
+
+        // /queue 应返回空状态
+        let result = try await controller.submit("/queue")
+        if case .feedback(let text) = result {
+            XCTAssertEqual(text, "Queue is empty")
+        } else {
+            XCTFail("Expected feedback result, got \(result)")
+        }
+    }
+
+    // MARK: - 附件注入
+
+    func testSubmitInjectsAttachmentsIntoPrompt() async throws {
+        _ = await registerBuiltins(sourceId: "test-builtins-attach")
+        defer {
+            Task { await APIRegistry.shared.unregisterSource("test-builtins-attach") }
+        }
+
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+        let store = AttachmentStore()
+        store.addText("attached content")
+        let controller = PromptController(agent: agent, attachmentStore: store)
+
+        try await controller.submit("hello")
+
+        guard case .user(let userMessage) = agent.state.messages.first else {
+            XCTFail("Expected user message")
+            return
+        }
+        XCTAssertTrue(userMessage.text.contains("attached content"))
+        XCTAssertTrue(userMessage.text.contains("hello"))
+    }
+
+    func testSubmitWithFilePathAttachmentPrefixesPath() async throws {
+        _ = await registerBuiltins(sourceId: "test-builtins-attach-path")
+        defer {
+            Task { await APIRegistry.shared.unregisterSource("test-builtins-attach-path") }
+        }
+
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+        let store = AttachmentStore()
+        store.addFilePath("/tmp/main.swift")
+        let controller = PromptController(agent: agent, attachmentStore: store)
+
+        try await controller.submit("review")
+
+        guard case .user(let userMessage) = agent.state.messages.first else {
+            XCTFail("Expected user message")
+            return
+        }
+        XCTAssertTrue(userMessage.text.contains("[Attached file: /tmp/main.swift]"))
+        XCTAssertTrue(userMessage.text.contains("review"))
+    }
+
+    func testSubmitWithoutAttachmentsPreservesOriginalText() async throws {
+        _ = await registerBuiltins(sourceId: "test-builtins-no-attach")
+        defer {
+            Task { await APIRegistry.shared.unregisterSource("test-builtins-no-attach") }
+        }
+
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+        let controller = PromptController(agent: agent)
+
+        try await controller.submit("plain message")
+
+        guard case .user(let userMessage) = agent.state.messages.first else {
+            XCTFail("Expected user message")
+            return
+        }
+        XCTAssertEqual(userMessage.text, "plain message")
+    }
+
+    func testSubmitPreservesAttachmentsAfterSubmit() async throws {
+        _ = await registerBuiltins(sourceId: "test-builtins-attach-persist")
+        defer {
+            Task { await APIRegistry.shared.unregisterSource("test-builtins-attach-persist") }
+        }
+
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+        let store = AttachmentStore()
+        store.addText("persistent")
+        let controller = PromptController(agent: agent, attachmentStore: store)
+
+        try await controller.submit("first")
+        XCTAssertEqual(store.count, 1)
+
+        try await controller.submit("second")
+        XCTAssertEqual(store.count, 1)
+    }
+
+    // MARK: - 空输入 + 有附件 = 允许提交（方案 A）
+
+    func testSubmitEmptyInputWithAttachmentsSubmitsOnlyAttachments() async throws {
+        _ = await registerBuiltins(sourceId: "test-builtins-empty-attach")
+        defer {
+            Task { await APIRegistry.shared.unregisterSource("test-builtins-empty-attach") }
+        }
+
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+        let store = AttachmentStore()
+        store.addText("file content here")
+        let controller = PromptController(agent: agent, attachmentStore: store)
+
+        try await controller.submit("")
+
+        guard case .user(let userMessage) = agent.state.messages.first else {
+            XCTFail("Expected user message")
+            return
+        }
+        XCTAssertEqual(userMessage.text, "file content here")
+    }
+
+    func testSubmitEmptyInputWithPathAttachmentSubmitsPath() async throws {
+        _ = await registerBuiltins(sourceId: "test-builtins-empty-path")
+        defer {
+            Task { await APIRegistry.shared.unregisterSource("test-builtins-empty-path") }
+        }
+
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+        let store = AttachmentStore()
+        store.addFilePath("/tmp/main.swift")
+        let controller = PromptController(agent: agent, attachmentStore: store)
+
+        try await controller.submit("")
+
+        guard case .user(let userMessage) = agent.state.messages.first else {
+            XCTFail("Expected user message")
+            return
+        }
+        XCTAssertEqual(userMessage.text, "[Attached file: /tmp/main.swift]")
+    }
+
+    func testSubmitEmptyInputWithoutAttachmentsDoesNothing() async throws {
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+        let controller = PromptController(agent: agent)
+
+        let result = try await controller.submit("")
+
+        XCTAssertEqual(result, .submitted)
+        XCTAssertTrue(agent.state.messages.isEmpty)
+    }
 }
 
 private final class MutableStreamProvider: @unchecked Sendable {

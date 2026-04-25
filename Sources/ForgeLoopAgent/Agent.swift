@@ -194,6 +194,15 @@ public final class Agent: @unchecked Sendable {
         }
         state.setStreaming(false)
         state.setStreamingMessage(nil)
+
+        // Auto-compact after turn completes, before notifying waiters
+        if let compactResult = state.maybeAutoCompact() {
+            let event = AgentEvent.contextCompacted(before: compactResult.before, after: compactResult.after)
+            for listener in snapshotListeners() {
+                await listener(event, nil)
+            }
+        }
+
         for waiter in waiters {
             waiter.resume()
         }

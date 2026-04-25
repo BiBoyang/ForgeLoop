@@ -87,6 +87,33 @@ final class BashToolTests: XCTestCase {
         XCTAssertTrue(result.output.contains("Missing required argument"))
     }
 
+    // MARK: - 非交互环境注入
+
+    func testPagerEnvironmentVariablesInjected() async throws {
+        let tool = BashTool()
+        let result = await tool.execute(
+            arguments: "{\"command\":\"printf '%s|%s' \\\"$PAGER\\\" \\\"$GIT_PAGER\\\"\"}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        XCTAssertFalse(result.isError)
+        XCTAssertTrue(result.output.contains("cat|cat"), "Expected PAGER=cat and GIT_PAGER=cat, got: \(result.output)")
+    }
+
+    func testStdinNullDeviceDoesNotHang() async throws {
+        let tool = BashTool()
+        let result = await tool.execute(
+            arguments: "{\"command\":\"cat\",\"timeoutMs\":500}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        // cat with no stdin should return quickly (empty), not timeout
+        XCTAssertFalse(result.output.contains("timed out"), "Expected cat to return quickly with null stdin, but it timed out: \(result.output)")
+        XCTAssertFalse(result.isError, "Expected cat with null stdin to succeed, got error: \(result.output)")
+    }
+
     // MARK: - 超时
 
     func testTimeoutKillsProcess() async throws {

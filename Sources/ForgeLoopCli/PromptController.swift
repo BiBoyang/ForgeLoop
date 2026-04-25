@@ -76,6 +76,7 @@ func switchedModel(from currentModel: Model, to modelId: String) -> Model {
 struct PromptController {
     let agent: Agent
     var modelStore: ModelStore?
+    let attachmentStore: AttachmentStore
     let slashCommandRegistry: SlashCommandRegistry
 
     enum SubmitResult: Equatable {
@@ -88,10 +89,12 @@ struct PromptController {
     init(
         agent: Agent,
         modelStore: ModelStore? = nil,
+        attachmentStore: AttachmentStore = AttachmentStore(),
         slashCommandRegistry: SlashCommandRegistry = makeDefaultSlashCommandRegistry()
     ) {
         self.agent = agent
         self.modelStore = modelStore
+        self.attachmentStore = attachmentStore
         self.slashCommandRegistry = slashCommandRegistry
     }
 
@@ -102,11 +105,17 @@ struct PromptController {
             return await handleSlashCommand(trimmed)
         }
 
+        let finalText = injectAttachments(into: trimmed, attachments: attachmentStore.snapshot())
+
+        guard !finalText.isEmpty else {
+            return .submitted
+        }
+
         if agent.state.isStreaming {
-            agent.steer(.user(UserMessage(text: trimmed)))
+            agent.steer(.user(UserMessage(text: finalText)))
             return .submitted
         } else {
-            try await agent.prompt(trimmed)
+            try await agent.prompt(finalText)
             return .submitted
         }
     }
@@ -114,7 +123,7 @@ struct PromptController {
     private func handleSlashCommand(_ text: String) async -> SubmitResult {
         slashCommandRegistry.execute(
             text,
-            context: SlashCommandContext(agent: agent, modelStore: modelStore)
+            context: SlashCommandContext(agent: agent, modelStore: modelStore, attachmentStore: attachmentStore)
         )
     }
 }

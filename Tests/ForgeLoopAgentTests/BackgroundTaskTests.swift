@@ -237,6 +237,20 @@ final class BackgroundTaskTests: XCTestCase {
         XCTAssertEqual(after[0].status, .success)
     }
 
+    // MARK: - 非交互环境继承
+
+    func testBgTaskInheritsPagerEnvironment() async throws {
+        let manager = BackgroundTaskManager()
+        let id = await manager.start(command: "echo \"$PAGER\"", cwd: "/tmp")
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        let tasks = await manager.status(id: id)
+        XCTAssertEqual(tasks.count, 1)
+        XCTAssertEqual(tasks[0].status, .success)
+        XCTAssertTrue(tasks[0].output.contains("cat"), "Expected PAGER=cat in bg output, got: \(tasks[0].output)")
+    }
+
     // MARK: - 13) Cancel source appears in bg_status output
 
     func testCancelSourceInStatus() async {
