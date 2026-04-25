@@ -83,6 +83,23 @@
 - 注入 `Message.tool(ToolResultMessage)` 到上下文
 - 若存在 `tool_result`，继续下一轮模型请求；否则收敛结束
 
+## 4a) 工具参数契约与错误 taxonomy（长期不变量）
+
+所有内置工具统一通过 `ToolArgsValidator` 做参数 schema 校验，错误输出格式收敛为 `[code] message (path: $.field)`。
+
+### 错误码
+- `invalidJson`：入参不是合法 JSON 或不是 object
+- `missingRequired`：缺少必填字段
+- `invalidType`：字段类型不符（含枚举值越界，如 `mode` 非 `foreground/background`）
+- `unknownField`：出现 schema 未声明的字段（已迁移工具启用严格拒绝）
+- `missingArgument` / `outsideCwd` / `pathNotFound` / `targetIsDirectory` / `textNotFound` / `executionFailed` / `sizeExceeded` / `timeout` / `cancelled` / `notImplemented` / `unknownTool`：运行时/语义层错误，保持既有含义
+
+### Schema 类型
+- `.string`：纯字符串
+- `.int`：整数（底层用 `CFGetTypeID==CFNumberGetTypeID()` 排除 `__NSCFBoolean` 桥接污染）
+- `.bool`：布尔（底层用 `CFGetTypeID==CFBooleanGetTypeID()` 精确识别）
+- `.numberOrString`：数字或数字字符串（如 `timeoutMs`，兼容 `15000` 与 `"15000"` 两种输入）
+
 ## 5) 全局不变量
 - 每条 assistant 回复事件闭环：
   - `messageStart -> messageUpdate* -> messageEnd`（旧）

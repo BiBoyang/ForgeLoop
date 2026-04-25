@@ -4,9 +4,11 @@ import ForgeLoopAI
 public struct EditTool: Tool {
     public let name = "edit"
     public let maxFileSize: Int
+    public let maxDiffPreviewChars: Int
 
-    public init(maxFileSize: Int = 1_048_576) {
+    public init(maxFileSize: Int = 1_048_576, maxDiffPreviewChars: Int = 200) {
         self.maxFileSize = maxFileSize
+        self.maxDiffPreviewChars = maxDiffPreviewChars
     }
 
     public func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
@@ -47,11 +49,46 @@ public struct EditTool: Tool {
             content.replaceSubrange(range, with: newText)
             try content.write(to: url, atomically: true, encoding: .utf8)
 
-            return ToolResult(output: "Edited \(path) (1 replacement)", isError: false)
+            let summary = makeDiffSummary(path: path, oldText: oldText, newText: newText)
+            return ToolResult(output: summary, isError: false)
         } catch PathError.outsideCwd {
             return ToolResult.error(.outsideCwd, message: "Path '\(path)' is outside the working directory")
         } catch {
             return ToolResult.error(.executionFailed, message: "Failed to edit '\(path)': \(error.localizedDescription)")
         }
     }
+
+    // MARK: - Diff Summary
+
+    private func makeDiffSummary(path: String, oldText: String, newText: String) -> String {
+        let wasTruncated = oldText.count > maxDiffPreviewChars || newText.count > maxDiffPreviewChars
+
+        var lines = ["Edited \(path) (1 replacement)", "--- old", "+++ new"]
+        lines.append(contentsOf: formatDiffLines(oldText, marker: "-", maxChars: maxDiffPreviewChars))
+        lines.append(contentsOf: formatDiffLines(newText, marker: "+", maxChars: maxDiffPreviewChars))
+
+        if wasTruncated {
+            lines.append("[diff truncated: exceeded limit]")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+}
+
+private func formatDiffLines(_ text: String, marker: String, maxChars: Int) -> [String] {
+    let preview: String
+    if text.count <= maxChars {
+        preview = text
+    } else {
+        // 截断到最近的换行符，避免半截行
+        let prefix = String(text.prefix(maxChars))
+        if let idx = prefix.lastIndex(of: "\n") {
+            preview = String(prefix[..<idx])
+        } else {
+            preview = prefix
+        }
+    }
+
+    return preview.split(separator: "\n", omittingEmptySubsequences: false)
+        .map { "\(marker)\($0)" }
 }

@@ -1,14 +1,26 @@
 import Foundation
 import ForgeLoopAI
 
+private let listToolSchema = ToolArgsSchema(fields: [
+    ToolArgField(name: "path", type: .string, required: false)
+])
+
 public struct ListTool: Tool {
     public let name = "ls"
 
     public init() {}
 
     public func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
-        let args = parseArgs(arguments)
-        let path = args?["path"] ?? "."
+        let validation = ToolArgsValidator.validate(arguments, schema: listToolSchema)
+        let args: ValidatedArgs
+        switch validation {
+        case .success(let validated):
+            args = validated
+        case .failure(let errors):
+            return ToolArgsValidator.formatErrors(errors)
+        }
+
+        let path = args.string("path") ?? "."
 
         let guard_ = PathGuard(cwd: cwd)
         do {

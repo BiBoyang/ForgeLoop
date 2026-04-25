@@ -1,6 +1,11 @@
 import Foundation
 import ForgeLoopAI
 
+private let grepToolSchema = ToolArgsSchema(fields: [
+    ToolArgField(name: "path", type: .string, required: true),
+    ToolArgField(name: "pattern", type: .string, required: true)
+])
+
 public struct GrepTool: Tool {
     public let name = "grep"
     public let maxResults: Int
@@ -12,10 +17,20 @@ public struct GrepTool: Tool {
     }
 
     public func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
-        guard let args = parseArgs(arguments),
-              let path = args["path"],
-              let pattern = args["pattern"] else {
-            return ToolResult.error(.missingArgument, message: "Missing required arguments: path, pattern")
+        let validation = ToolArgsValidator.validate(arguments, schema: grepToolSchema)
+        let args: ValidatedArgs
+        switch validation {
+        case .success(let validated):
+            args = validated
+        case .failure(let errors):
+            return ToolArgsValidator.formatErrors(errors)
+        }
+
+        guard let path = args.string("path") else {
+            return ToolResult.error(.invalidType, message: "Invalid type for path: expected string", hint: "path: $.path")
+        }
+        guard let pattern = args.string("pattern") else {
+            return ToolResult.error(.invalidType, message: "Invalid type for pattern: expected string", hint: "path: $.pattern")
         }
 
         let guard_ = PathGuard(cwd: cwd)

@@ -64,6 +64,32 @@ final class BuiltinSearchToolsTests: XCTestCase {
         XCTAssertTrue(result.output.contains("outside"))
     }
 
+    func testListInvalidJson() async {
+        let tool = ListTool()
+        let result = await tool.execute(arguments: "bad json", cwd: tempDir, cancellation: nil)
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("invalidJson"))
+    }
+
+    func testListUnknownField() async {
+        let tool = ListTool()
+        let result = await tool.execute(arguments: "{\"path\":\".\",\"extra\":1}", cwd: tempDir, cancellation: nil)
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("unknownField"))
+        XCTAssertTrue(result.output.contains("$.extra"))
+    }
+
+    func testListInvalidPathType() async {
+        let tool = ListTool()
+        let result = await tool.execute(arguments: "{\"path\":123}", cwd: tempDir, cancellation: nil)
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("invalidType"))
+        XCTAssertTrue(result.output.contains("$.path"))
+    }
+
     // MARK: - FindTool
 
     func testFindByPattern() async {
@@ -158,6 +184,32 @@ final class BuiltinSearchToolsTests: XCTestCase {
         XCTAssertTrue(result.output.contains("truncated"))
     }
 
+    func testFindInvalidJson() async {
+        let tool = FindTool()
+        let result = await tool.execute(arguments: "bad json", cwd: tempDir, cancellation: nil)
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("invalidJson"))
+    }
+
+    func testFindUnknownField() async {
+        let tool = FindTool()
+        let result = await tool.execute(arguments: "{\"path\":\".\",\"namePattern\":\"*\",\"extra\":1}", cwd: tempDir, cancellation: nil)
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("unknownField"))
+        XCTAssertTrue(result.output.contains("$.extra"))
+    }
+
+    func testFindInvalidPathType() async {
+        let tool = FindTool()
+        let result = await tool.execute(arguments: "{\"path\":123}", cwd: tempDir, cancellation: nil)
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("invalidType"))
+        XCTAssertTrue(result.output.contains("$.path"))
+    }
+
     // MARK: - GrepTool
 
     func testGrepInFile() async throws {
@@ -203,7 +255,34 @@ final class BuiltinSearchToolsTests: XCTestCase {
         let result = await tool.execute(arguments: "{\"path\":\"test.txt\"}", cwd: tempDir, cancellation: nil)
 
         XCTAssertTrue(result.isError)
-        XCTAssertTrue(result.output.contains("Missing"))
+        XCTAssertTrue(result.output.contains("missingRequired"))
+        XCTAssertTrue(result.output.contains("$.pattern"))
+    }
+
+    func testGrepInvalidJson() async {
+        let tool = GrepTool()
+        let result = await tool.execute(arguments: "not json", cwd: tempDir, cancellation: nil)
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("invalidJson"))
+    }
+
+    func testGrepInvalidPathType() async {
+        let tool = GrepTool()
+        let result = await tool.execute(arguments: "{\"path\":123,\"pattern\":\"x\"}", cwd: tempDir, cancellation: nil)
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("invalidType"))
+        XCTAssertTrue(result.output.contains("$.path"))
+    }
+
+    func testGrepUnknownField() async {
+        let tool = GrepTool()
+        let result = await tool.execute(arguments: "{\"path\":\"test.txt\",\"pattern\":\"x\",\"extra\":1}", cwd: tempDir, cancellation: nil)
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("unknownField"))
+        XCTAssertTrue(result.output.contains("$.extra"))
     }
 
     func testGrepOutsideCwdRejected() async {

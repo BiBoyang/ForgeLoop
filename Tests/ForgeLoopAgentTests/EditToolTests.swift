@@ -30,7 +30,11 @@ final class EditToolTests: XCTestCase {
         )
 
         XCTAssertFalse(result.isError)
-        XCTAssertTrue(result.output.contains("Edited"))
+        XCTAssertTrue(result.output.contains("Edited test.txt (1 replacement)"))
+        XCTAssertTrue(result.output.contains("--- old"))
+        XCTAssertTrue(result.output.contains("+++ new"))
+        XCTAssertTrue(result.output.contains("-hello"))
+        XCTAssertTrue(result.output.contains("+hi"))
 
         let content = try String(contentsOfFile: filePath, encoding: .utf8)
         XCTAssertEqual(content, "hi world hello")
@@ -126,7 +130,53 @@ final class EditToolTests: XCTestCase {
         )
 
         XCTAssertFalse(result.isError)
+        XCTAssertTrue(result.output.contains("Edited test.txt (1 replacement)"))
+        XCTAssertTrue(result.output.contains("-OLD"))
+        XCTAssertTrue(result.output.contains("+NEW"))
         let content = try String(contentsOfFile: filePath, encoding: .utf8)
         XCTAssertEqual(content, "line1\nNEW\nline3")
+    }
+
+    // MARK: - 8) Multi-line diff summary
+
+    func testMultilineDiffSummary() async throws {
+        let filePath = "\(tempDir!)/test.txt"
+        try "line1\nOLD_LINE_A\nOLD_LINE_B\nline4".write(toFile: filePath, atomically: true, encoding: .utf8)
+
+        let tool = EditTool()
+        let result = await tool.execute(
+            arguments: #"{"path":"test.txt","oldText":"OLD_LINE_A\nOLD_LINE_B","newText":"NEW_LINE_A\nNEW_LINE_B"}"#,
+            cwd: tempDir,
+            cancellation: nil
+        )
+
+        XCTAssertFalse(result.isError)
+        XCTAssertTrue(result.output.contains("Edited test.txt (1 replacement)"))
+        XCTAssertTrue(result.output.contains("--- old"))
+        XCTAssertTrue(result.output.contains("+++ new"))
+        XCTAssertTrue(result.output.contains("-OLD_LINE_A"))
+        XCTAssertTrue(result.output.contains("-OLD_LINE_B"))
+        XCTAssertTrue(result.output.contains("+NEW_LINE_A"))
+        XCTAssertTrue(result.output.contains("+NEW_LINE_B"))
+    }
+
+    // MARK: - 9) Long diff truncation
+
+    func testLongDiffTruncation() async throws {
+        let filePath = "\(tempDir!)/test.txt"
+        let longOld = String(repeating: "a", count: 300)
+        let longNew = String(repeating: "b", count: 300)
+        try longOld.write(toFile: filePath, atomically: true, encoding: .utf8)
+
+        let tool = EditTool(maxDiffPreviewChars: 50)
+        let result = await tool.execute(
+            arguments: "{\"path\":\"test.txt\",\"oldText\":\"\(longOld)\",\"newText\":\"\(longNew)\"}",
+            cwd: tempDir,
+            cancellation: nil
+        )
+
+        XCTAssertFalse(result.isError)
+        XCTAssertTrue(result.output.contains("Edited test.txt (1 replacement)"))
+        XCTAssertTrue(result.output.contains("[diff truncated: exceeded limit]"))
     }
 }

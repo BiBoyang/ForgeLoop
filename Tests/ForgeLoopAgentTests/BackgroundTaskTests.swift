@@ -120,7 +120,33 @@ final class BackgroundTaskTests: XCTestCase {
         let result = await tool.execute(arguments: "{}", cwd: "/tmp", cancellation: nil)
 
         XCTAssertTrue(result.isError)
-        XCTAssertTrue(result.output.contains("Missing"))
+        XCTAssertTrue(result.output.contains("missingRequired"))
+        XCTAssertTrue(result.output.contains("$.command"))
+    }
+
+    func testBgToolUnknownField() async {
+        let manager = BackgroundTaskManager()
+        let tool = BgTool(manager: manager)
+
+        let result = await tool.execute(
+            arguments: "{\"command\":\"echo hi\",\"extra\":1}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("unknownField"))
+        XCTAssertTrue(result.output.contains("$.extra"))
+    }
+
+    func testBgToolInvalidJson() async {
+        let manager = BackgroundTaskManager()
+        let tool = BgTool(manager: manager)
+
+        let result = await tool.execute(arguments: "bad json", cwd: "/tmp", cancellation: nil)
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("invalidJson"))
     }
 
     // MARK: - 8) BgStatusTool queries tasks
@@ -162,6 +188,46 @@ final class BackgroundTaskTests: XCTestCase {
 
         XCTAssertFalse(result.isError)
         XCTAssertTrue(result.output.contains("No task found"))
+    }
+
+    func testBgStatusToolInvalidIdType() async {
+        let manager = BackgroundTaskManager()
+        let statusTool = BgStatusTool(manager: manager)
+
+        let result = await statusTool.execute(
+            arguments: "{\"id\":123}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("invalidType"))
+        XCTAssertTrue(result.output.contains("$.id"))
+    }
+
+    func testBgStatusToolUnknownField() async {
+        let manager = BackgroundTaskManager()
+        let statusTool = BgStatusTool(manager: manager)
+
+        let result = await statusTool.execute(
+            arguments: "{\"id\":\"test\",\"extra\":1}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("unknownField"))
+        XCTAssertTrue(result.output.contains("$.extra"))
+    }
+
+    func testBgStatusToolInvalidJson() async {
+        let manager = BackgroundTaskManager()
+        let statusTool = BgStatusTool(manager: manager)
+
+        let result = await statusTool.execute(arguments: "bad json", cwd: "/tmp", cancellation: nil)
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("invalidJson"))
     }
 
     // MARK: - 9) Multiple tasks tracked independently

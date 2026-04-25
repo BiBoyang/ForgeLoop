@@ -84,7 +84,87 @@ final class BashToolTests: XCTestCase {
         )
 
         XCTAssertTrue(result.isError)
-        XCTAssertTrue(result.output.contains("Missing required argument"))
+        XCTAssertTrue(result.output.contains("missingRequired"))
+        XCTAssertTrue(result.output.contains("$.command"))
+    }
+
+    // MARK: - 参数校验
+
+    func testInvalidJsonReturnsError() async {
+        let tool = BashTool()
+        let result = await tool.execute(arguments: "not json", cwd: "/tmp", cancellation: nil)
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("invalidJson"))
+    }
+
+    func testUnknownFieldReturnsError() async {
+        let tool = BashTool()
+        let result = await tool.execute(
+            arguments: "{\"command\":\"echo hi\",\"extra\":1}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("unknownField"))
+        XCTAssertTrue(result.output.contains("$.extra"))
+    }
+
+    func testInvalidModeReturnsError() async {
+        let tool = BashTool()
+        let result = await tool.execute(
+            arguments: "{\"command\":\"echo hi\",\"mode\":\"invalid\"}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("invalidType"))
+        XCTAssertTrue(result.output.contains("$.mode"))
+    }
+
+    func testInvalidTimeoutMsReturnsError() async {
+        let tool = BashTool()
+        let result = await tool.execute(
+            arguments: "{\"command\":\"echo hi\",\"timeoutMs\":0}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("invalidType"))
+        XCTAssertTrue(result.output.contains("$.timeoutMs"))
+    }
+
+    // MARK: - background mode
+
+    func testBackgroundModeStartsTask() async {
+        let manager = BackgroundTaskManager()
+        let tool = BashTool(manager: manager)
+        let result = await tool.execute(
+            arguments: "{\"command\":\"echo hello\",\"mode\":\"background\"}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        XCTAssertFalse(result.isError)
+        XCTAssertTrue(result.output.contains("Started background task:"))
+
+        let tasks = await manager.status()
+        XCTAssertEqual(tasks.count, 1)
+    }
+
+    func testBackgroundModeWithoutManagerReturnsNotImplemented() async {
+        let tool = BashTool()
+        let result = await tool.execute(
+            arguments: "{\"command\":\"echo hello\",\"mode\":\"background\"}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("notImplemented"))
     }
 
     // MARK: - 非交互环境注入

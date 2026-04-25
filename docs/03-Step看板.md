@@ -75,6 +75,16 @@
 | PB-024 | auto-compact 二期 | Done | AI | `keepCount/minGap` 可配置，compact badge 可见且随输入清除 |
 | PB-025A | 工具防分页器卡住 | Done | AI | `ProcessRunner` 注入 `PAGER/GIT_PAGER/MANPAGER/SYSTEMD_PAGER=cat` + `stdin=/dev/null`，`bash/bg` 路径验证通过 |
 
+## Harness Engineer 阶段（HB-001~HB-005：参数校验层固化）
+
+| Step ID | 标题 | 状态 | 负责人 | 备注 |
+|---|---|---|---|---|
+| HB-001 | Tool 参数校验核心（schema/validator/taxonomy） | Done | AI | 二审通过：CFTypeID 精确区分 Bool/Number，34/34 测试绿 |
+| HB-002 | ls/find/grep 迁移到 typed args | Done | AI | 二审通过：严格 unknown_field，26/26 测试绿 |
+| HB-003 | EditTool diff 摘要输出 | Done | AI | 二审通过：可读 diff + 截断标记，9/9 测试绿 |
+| HB-004 | bash/bg/bg_status 接入 typed args + background 模式 | Done | AI | 二审通过：BashTool 共享 manager，background 路径打通，16+24 测试绿 |
+| HB-005 | 回归固化与文档同步 | Done | AI | 全量 459/459 绿，看板/评审日志/架构文档同步完成 |
+
 ## Phase 3 建议执行顺序（V2）
 
 1. `STEP-028A`：建立改造前基线（性能 + 回归快照）

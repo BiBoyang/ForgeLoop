@@ -1,14 +1,27 @@
 import Foundation
 import ForgeLoopAI
 
+private let readToolSchema = ToolArgsSchema(fields: [
+    ToolArgField(name: "path", type: .string, required: true)
+])
+
 public struct ReadTool: Tool {
     public let name = "read"
 
     public init() {}
 
     public func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
-        guard let args = parseArgs(arguments), let path = args["path"] else {
-            return ToolResult.error(.missingArgument, message: "Missing required argument: path")
+        let validation = ToolArgsValidator.validate(arguments, schema: readToolSchema)
+        let args: ValidatedArgs
+        switch validation {
+        case .success(let validated):
+            args = validated
+        case .failure(let errors):
+            return ToolArgsValidator.formatErrors(errors)
+        }
+
+        guard let path = args.string("path") else {
+            return ToolResult.error(.invalidType, message: "Invalid type for path: expected string", hint: "path: $.path")
         }
 
         let guard_ = PathGuard(cwd: cwd)
@@ -29,16 +42,31 @@ public struct ReadTool: Tool {
     }
 }
 
+private let writeToolSchema = ToolArgsSchema(fields: [
+    ToolArgField(name: "path", type: .string, required: true),
+    ToolArgField(name: "content", type: .string, required: true)
+])
+
 public struct WriteTool: Tool {
     public let name = "write"
 
     public init() {}
 
     public func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
-        guard let args = parseArgs(arguments),
-              let path = args["path"],
-              let content = args["content"] else {
-            return ToolResult.error(.missingArgument, message: "Missing required arguments: path, content")
+        let validation = ToolArgsValidator.validate(arguments, schema: writeToolSchema)
+        let args: ValidatedArgs
+        switch validation {
+        case .success(let validated):
+            args = validated
+        case .failure(let errors):
+            return ToolArgsValidator.formatErrors(errors)
+        }
+
+        guard let path = args.string("path") else {
+            return ToolResult.error(.invalidType, message: "Invalid type for path: expected string", hint: "path: $.path")
+        }
+        guard let content = args.string("content") else {
+            return ToolResult.error(.invalidType, message: "Invalid type for content: expected string", hint: "path: $.content")
         }
 
         let guard_ = PathGuard(cwd: cwd)

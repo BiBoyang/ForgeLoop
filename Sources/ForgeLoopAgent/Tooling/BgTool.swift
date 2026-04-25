@@ -1,6 +1,10 @@
 import Foundation
 import ForgeLoopAI
 
+private let bgToolSchema = ToolArgsSchema(fields: [
+    ToolArgField(name: "command", type: .string, required: true)
+])
+
 public struct BgTool: Tool {
     public let name = "bg"
     private let manager: BackgroundTaskManager
@@ -12,8 +16,17 @@ public struct BgTool: Tool {
     }
 
     public func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
-        guard let args = parseArgs(arguments), let command = args["command"] else {
-            return ToolResult.error(.missingArgument, message: "Missing required argument: command")
+        let validation = ToolArgsValidator.validate(arguments, schema: bgToolSchema)
+        let args: ValidatedArgs
+        switch validation {
+        case .success(let validated):
+            args = validated
+        case .failure(let errors):
+            return ToolArgsValidator.formatErrors(errors)
+        }
+
+        guard let command = args.string("command") else {
+            return ToolResult.error(.invalidType, message: "Invalid type for command: expected string", hint: "path: $.command")
         }
 
         if let handler = onComplete {

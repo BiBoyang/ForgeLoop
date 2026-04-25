@@ -26,12 +26,12 @@ public func makeCodingAgent(_ config: CodingAgentConfig) async -> Agent {
     toolExecutor.register(ReadTool())
     toolExecutor.register(WriteTool())
     toolExecutor.register(EditTool())
-    toolExecutor.register(BashTool())
     toolExecutor.register(ListTool())
     toolExecutor.register(FindTool())
     toolExecutor.register(GrepTool())
 
     let bgManager = BackgroundTaskManager()
+    toolExecutor.register(BashTool(manager: bgManager))
     toolExecutor.register(BgTool(manager: bgManager))
     toolExecutor.register(BgStatusTool(manager: bgManager))
 

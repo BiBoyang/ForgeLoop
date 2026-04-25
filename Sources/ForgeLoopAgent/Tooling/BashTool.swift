@@ -1,20 +1,55 @@
 import Foundation
 import ForgeLoopAI
 
+private let bashToolSchema = ToolArgsSchema(fields: [
+    ToolArgField(name: "command", type: .string, required: true),
+    ToolArgField(name: "timeoutMs", type: .numberOrString, required: false),
+    ToolArgField(name: "mode", type: .string, required: false)
+])
+
 public struct BashTool: Tool {
     public let name = "bash"
     public let defaultTimeoutMs: Int
+    private let manager: BackgroundTaskManager?
 
-    public init(defaultTimeoutMs: Int = 15_000) {
+    public init(defaultTimeoutMs: Int = 15_000, manager: BackgroundTaskManager? = nil) {
         self.defaultTimeoutMs = defaultTimeoutMs
+        self.manager = manager
     }
 
     public func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
-        guard let args = parseArgs(arguments), let command = args["command"] else {
-            return ToolResult.error(.missingArgument, message: "Missing required argument: command")
+        let validation = ToolArgsValidator.validate(arguments, schema: bashToolSchema)
+        let args: ValidatedArgs
+        switch validation {
+        case .success(let validated):
+            args = validated
+        case .failure(let errors):
+            return ToolArgsValidator.formatErrors(errors)
         }
 
-        let timeoutMs = args["timeoutMs"].flatMap(Int.init) ?? defaultTimeoutMs
+        guard let command = args.string("command") else {
+            return ToolResult.error(.invalidType, message: "Invalid type for command: expected string", hint: "path: $.command")
+        }
+
+        let mode = args.string("mode") ?? "foreground"
+        guard mode == "foreground" || mode == "background" else {
+            return ToolResult.error(.invalidType, message: "Invalid value for mode: expected 'foreground' or 'background'", hint: "path: $.mode")
+        }
+
+        // background mode
+        if mode == "background" {
+            guard let manager = manager else {
+                return ToolResult.error(.notImplemented, message: "Background mode requires a BackgroundTaskManager")
+            }
+            let id = await manager.start(command: command, cwd: cwd)
+            return ToolResult(output: "Started background task: \(id)", isError: false)
+        }
+
+        // foreground mode (existing behavior)
+        var timeoutMs = args.int("timeoutMs") ?? defaultTimeoutMs
+        guard timeoutMs > 0 else {
+            return ToolResult.error(.invalidType, message: "timeoutMs must be greater than 0", hint: "path: $.timeoutMs")
+        }
 
         let result = await ProcessRunner.run(
             command: command,
@@ -49,21 +84,4 @@ public struct BashTool: Tool {
 
         return ToolResult(output: output, isError: isError, errorCode: isError ? .executionFailed : nil)
     }
-}
-
-private func parseBashArgs(_ json: String) -> [String: String]? {
-    guard let data = json.data(using: .utf8) else { return nil }
-    guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-
-    var result: [String: String] = [:]
-    for (key, value) in dict {
-        if let str = value as? String {
-            result[key] = str
-        } else if let num = value as? NSNumber {
-            result[key] = num.stringValue
-        } else if let bool = value as? Bool {
-            result[key] = bool ? "true" : "false"
-        }
-    }
-    return result
 }

@@ -1,6 +1,10 @@
 import Foundation
 import ForgeLoopAI
 
+private let bgStatusToolSchema = ToolArgsSchema(fields: [
+    ToolArgField(name: "id", type: .string, required: false)
+])
+
 public struct BgStatusTool: Tool {
     public let name = "bg_status"
     private let manager: BackgroundTaskManager
@@ -10,8 +14,16 @@ public struct BgStatusTool: Tool {
     }
 
     public func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
-        let args = parseArgs(arguments)
-        let id = args?["id"]
+        let validation = ToolArgsValidator.validate(arguments, schema: bgStatusToolSchema)
+        let args: ValidatedArgs
+        switch validation {
+        case .success(let validated):
+            args = validated
+        case .failure(let errors):
+            return ToolArgsValidator.formatErrors(errors)
+        }
+
+        let id = args.string("id")
 
         let tasks = await manager.status(id: id)
         if tasks.isEmpty {

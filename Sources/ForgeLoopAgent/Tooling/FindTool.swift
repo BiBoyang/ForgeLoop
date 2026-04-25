@@ -1,6 +1,11 @@
 import Foundation
 import ForgeLoopAI
 
+private let findToolSchema = ToolArgsSchema(fields: [
+    ToolArgField(name: "path", type: .string, required: false),
+    ToolArgField(name: "namePattern", type: .string, required: false)
+])
+
 public struct FindTool: Tool {
     public let name = "find"
     public let maxDepth: Int
@@ -14,9 +19,17 @@ public struct FindTool: Tool {
     }
 
     public func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
-        let args = parseArgs(arguments)
-        let path = args?["path"] ?? "."
-        let namePattern = args?["namePattern"] ?? "*"
+        let validation = ToolArgsValidator.validate(arguments, schema: findToolSchema)
+        let args: ValidatedArgs
+        switch validation {
+        case .success(let validated):
+            args = validated
+        case .failure(let errors):
+            return ToolArgsValidator.formatErrors(errors)
+        }
+
+        let path = args.string("path") ?? "."
+        let namePattern = args.string("namePattern") ?? "*"
 
         let guard_ = PathGuard(cwd: cwd)
         do {

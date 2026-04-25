@@ -477,3 +477,53 @@
 - 验证通过：
   - `swift test --filter BashToolTests`（10 passed）
   - `swift test --filter BackgroundTaskTests`（19 passed）
+
+## 2026-04-25（HB-001~HB-005：参数校验层固化）
+
+- `HB-001` 评审结论：`Pass`（v2）
+  - 新增 `ToolArgsValidation.swift`：schema 定义 + `ToolArgsValidator` + `ValidationOutcome` + `ValidatedArgs`；
+  - `ToolErrorCode` 扩展 4 个错误码：`invalidJson`、`missingRequired`、`invalidType`、`unknownField`；
+  - `ReadTool` / `WriteTool` 接入 validator，成功路径不变；
+  - 根因修正：Swift `is Bool` / `is Int` 对 `__NSCFNumber` 均返回 `true`，改用 `CFGetTypeID` + `CFBooleanGetTypeID()` / `CFNumberGetTypeID()` 精确区分；
+  - `ValidatedArgs.int(_:)` / `bool(_:)` 同步收紧，排除 NSNumber 桥接污染。
+- 验证通过：
+  - `swift test --filter ToolArgsValidationTests`（34/34）
+  - `swift test --filter BuiltinReadWriteToolTests`（12/12）
+  - `swift test --filter BuiltinSearchToolsTests`（17/17）
+  - `swift test --filter AgentLoopToolExecutionTests`（10/10）
+
+- `HB-002` 评审结论：`Pass`
+  - `ListTool` / `FindTool` / `GrepTool` 从 `parseArgs` 迁移到 `ToolArgsValidator`；
+  - `ls`：path 可选 string（默认 `.`）；`find`：path/namePattern 可选 string（默认 `.` / `*`）；`grep`：path/pattern 必填 string；
+  - 已迁移工具启用严格 `unknown_field` 拒绝；缺参走 `missingRequired`。
+- 验证通过：
+  - `swift test --filter BuiltinSearchToolsTests`（26/26）
+  - `swift test --filter ToolArgsValidationTests`（34/34）
+  - `swift test --filter AgentLoopToolExecutionTests`（10/10）
+
+- `HB-003` 评审结论：`Pass`
+  - `EditTool` 成功输出升级：摘要头 `Edited <path> (1 replacement)` + `--- old / +++ new` + `-<oldText>` / `+<newText>`；
+  - 超长截断：`maxDiffPreviewChars=200`，超限时截断到最近换行符，追加 `[diff truncated: exceeded limit]`；
+  - 参数校验、文件大小校验、错误 taxonomy、首个命中替换语义均保持不变。
+- 验证通过：
+  - `swift test --filter EditToolTests`（9/9）
+  - `swift test --filter AgentLoopToolExecutionTests`（10/10）
+  - `swift test --filter TranscriptRendererToolResultTests`（8/8）
+
+- `HB-004` 评审结论：`Pass`
+  - `BashTool` 接入 validator：command 必填、timeoutMs 可选 numberOrString、mode 可选 string（foreground/background）；
+  - `mode=background` 走 `BackgroundTaskManager.start`，无 manager 时返回 `notImplemented`；
+  - `timeoutMs <= 0` 报 `invalidType`；
+  - `BgTool` / `BgStatusTool` 接入 validator；删除未使用的 `parseBashArgs`；
+  - `CodingAgentBuilder` 调整：bgManager 共享给 BashTool/BgTool/BgStatusTool。
+- 验证通过：
+  - `swift test --filter BashToolTests`（16/16）
+  - `swift test --filter BackgroundTaskTests`（24/24）
+  - `swift test --filter AgentLoopToolExecutionTests`（10/10）
+  - `swift test --filter AgentStabilityTests`（13/13）
+
+- `HB-005` 评审结论：`Pass`
+  - 全量回归固化：`swift test` 459/459 绿；
+  - 文档同步：`03-Step看板.md` 新增 Harness Engineer 阶段；`REVIEW-LOG.md` 记录 HB-001~HB-005 要点；
+  - `ARCHITECTURE.md` 补充工具参数契约与错误 taxonomy 为长期不变量；
+  - 分层边界无破坏、事件语义无回归、无未解释测试跳过。

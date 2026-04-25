@@ -14,6 +14,12 @@ public enum ToolErrorCode: String, Sendable {
     case unknownTool
     case cancelled
     case notImplemented
+
+    // HB-001: 参数校验错误 taxonomy
+    case invalidJson
+    case missingRequired
+    case invalidType
+    case unknownField
 }
 
 public struct ToolResult: Sendable {
