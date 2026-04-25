@@ -46,6 +46,8 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
             stopReason: .endTurn
         )
         var ended = false
+        var pendingToolCalls: [String: ResponsesPendingToolCall] = [:]
+        var callOrder: [String] = []
 
         func text(from message: AssistantMessage) -> String {
             message.content.compactMap { block -> String? in
@@ -56,32 +58,53 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
             }.joined()
         }
 
-        func currentPartial() -> AssistantMessage {
-            AssistantMessage(
-                content: [.text(TextContent(text: text(from: partial)))],
-                stopReason: .endTurn
+        func buildFinalMessage(stopReason: StopReason) -> AssistantMessage {
+            var content: [AssistantBlock] = []
+            let textContent = text(from: partial)
+            if !textContent.isEmpty {
+                content.append(.text(TextContent(text: textContent)))
+            }
+            for callId in callOrder {
+                guard let pending = pendingToolCalls[callId] else { continue }
+                if let name = pending.name {
+                    let id = pending.id ?? callId
+                    content.append(.toolCall(ToolCall(
+                        id: id,
+                        name: name,
+                        arguments: pending.arguments
+                    )))
+                }
+            }
+            return AssistantMessage(
+                content: content,
+                stopReason: stopReason
             )
         }
 
-        func endWithDone() {
+        func endWithDone(toolUse: Bool = false) {
             guard !ended else { return }
             ended = true
-            let final = currentPartial()
-            output.push(.textEnd(contentIndex: 0, content: text(from: final), partial: final))
-            output.push(.done(reason: .endTurn, message: final))
+            let stopReason: StopReason = toolUse ? .toolUse : .endTurn
+            let final = buildFinalMessage(stopReason: stopReason)
+            let textContent = text(from: partial)
+            if !textContent.isEmpty {
+                output.push(.textEnd(contentIndex: 0, content: textContent, partial: final))
+            }
+            output.push(.done(reason: stopReason, message: final))
             output.end(final)
         }
 
         func endWithError(reason: StopReason, message: String) {
             guard !ended else { return }
             ended = true
-            let final = AssistantMessage(
-                content: [.text(TextContent(text: text(from: partial)))],
+            let final = buildFinalMessage(stopReason: reason)
+            let finalWithError = AssistantMessage(
+                content: final.content,
                 stopReason: reason,
                 errorMessage: message
             )
-            output.push(.error(reason: reason, error: final))
-            output.end(final)
+            output.push(.error(reason: reason, error: finalWithError))
+            output.end(finalWithError)
         }
 
         func endAbortedIfNeeded() -> Bool {
@@ -186,8 +209,45 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
                                 stopReason: .endTurn
                             )
                             output.push(.textDelta(contentIndex: 0, delta: delta, partial: partial))
+
+                        case "response.output_item.added":
+                            if let added = Self.resolveOutputItemAdded(message: message),
+                               added.itemType == "function_call",
+                               let callId = added.callId,
+                               let name = added.name {
+                                if pendingToolCalls[callId] == nil {
+                                    callOrder.append(callId)
+                                }
+                                pendingToolCalls[callId] = ResponsesPendingToolCall(
+                                    id: callId,
+                                    name: name,
+                                    arguments: added.arguments ?? ""
+                                )
+                            }
+
+                        case "response.function_call_arguments.delta":
+                            if let delta = Self.resolveFunctionCallArgumentsDelta(message: message) {
+                                let callId = delta.callId
+                                if pendingToolCalls[callId] == nil {
+                                    callOrder.append(callId)
+                                }
+                                var pending = pendingToolCalls[callId] ?? ResponsesPendingToolCall(id: callId, name: nil, arguments: "")
+                                pending.arguments += delta.arguments
+                                pendingToolCalls[callId] = pending
+                            }
+
+                        case "response.output_item.done":
+                            if let done = Self.resolveOutputItemDone(message: message),
+                               done.itemType == "function_call",
+                               let callId = done.callId {
+                                var pending = pendingToolCalls[callId] ?? ResponsesPendingToolCall(id: callId, name: nil, arguments: "")
+                                if let name = done.name { pending.name = name }
+                                if let args = done.arguments { pending.arguments = args }
+                                pendingToolCalls[callId] = pending
+                            }
+
                         case "response.completed":
-                            endWithDone()
+                            endWithDone(toolUse: !pendingToolCalls.isEmpty)
                             return
                         case "response.failed", "response.error":
                             endWithError(reason: .error, message: Self.resolveErrorMessage(message: message))
@@ -218,8 +278,48 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
                         stopReason: .endTurn
                     )
                     output.push(.textDelta(contentIndex: 0, delta: delta, partial: partial))
+
+                case "response.output_item.added":
+                    if let added = Self.resolveOutputItemAdded(message: message),
+                       added.itemType == "function_call",
+                       let callId = added.callId,
+                       let name = added.name {
+                        if pendingToolCalls[callId] == nil {
+                            callOrder.append(callId)
+                        }
+                        pendingToolCalls[callId] = ResponsesPendingToolCall(
+                            id: callId,
+                            name: name,
+                            arguments: added.arguments ?? ""
+                        )
+                    }
+
+                case "response.function_call_arguments.delta":
+                    if let delta = Self.resolveFunctionCallArgumentsDelta(message: message) {
+                        let callId = delta.callId
+                        if pendingToolCalls[callId] == nil {
+                            callOrder.append(callId)
+                        }
+                        var pending = pendingToolCalls[callId] ?? ResponsesPendingToolCall(id: callId, name: nil, arguments: "")
+                        pending.arguments += delta.arguments
+                        pendingToolCalls[callId] = pending
+                    }
+
+                case "response.output_item.done":
+                    if let done = Self.resolveOutputItemDone(message: message),
+                       done.itemType == "function_call",
+                       let callId = done.callId {
+                        if pendingToolCalls[callId] == nil {
+                            callOrder.append(callId)
+                        }
+                        var pending = pendingToolCalls[callId] ?? ResponsesPendingToolCall(id: callId, name: nil, arguments: "")
+                        if let name = done.name { pending.name = name }
+                        if let args = done.arguments { pending.arguments = args }
+                        pendingToolCalls[callId] = pending
+                    }
+
                 case "response.completed":
-                    endWithDone()
+                    endWithDone(toolUse: !pendingToolCalls.isEmpty)
                     return
                 case "response.failed", "response.error":
                     endWithError(reason: .error, message: Self.resolveErrorMessage(message: message))
@@ -232,7 +332,7 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
             if endAbortedIfNeeded() {
                 return
             }
-            endWithDone()
+            endWithDone(toolUse: !pendingToolCalls.isEmpty)
         } catch {
             if endAbortedIfNeeded() {
                 return
@@ -342,5 +442,63 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
         guard let payload = data.data(using: .utf8) else { return nil }
         guard let object = try? JSONSerialization.jsonObject(with: payload) else { return nil }
         return object as? [String: Any]
+    }
+}
+
+// MARK: - Tool Call Parsing
+
+fileprivate struct ResponsesPendingToolCall: Sendable {
+    var id: String?
+    var name: String?
+    var arguments: String = ""
+}
+
+fileprivate struct OutputItemAdded: Sendable {
+    let itemType: String
+    let callId: String?
+    let name: String?
+    let arguments: String?
+}
+
+fileprivate struct FunctionCallArgumentsDelta: Sendable {
+    let callId: String
+    let arguments: String
+}
+
+fileprivate struct OutputItemDone: Sendable {
+    let itemType: String
+    let callId: String?
+    let name: String?
+    let arguments: String?
+}
+
+extension OpenAIResponsesProvider {
+    fileprivate static func resolveOutputItemAdded(message: SSEMessage) -> OutputItemAdded? {
+        guard let object = parseObject(message.data) else { return nil }
+        guard let item = object["item"] as? [String: Any] else { return nil }
+        guard let itemType = item["type"] as? String else { return nil }
+
+        let callId = item["call_id"] as? String ?? item["id"] as? String
+        let name = item["name"] as? String
+        let arguments = item["arguments"] as? String
+        return OutputItemAdded(itemType: itemType, callId: callId, name: name, arguments: arguments)
+    }
+
+    fileprivate static func resolveFunctionCallArgumentsDelta(message: SSEMessage) -> FunctionCallArgumentsDelta? {
+        guard let object = parseObject(message.data) else { return nil }
+        guard let callId = object["item_id"] as? String ?? object["call_id"] as? String else { return nil }
+        guard let delta = object["delta"] as? String else { return nil }
+        return FunctionCallArgumentsDelta(callId: callId, arguments: delta)
+    }
+
+    fileprivate static func resolveOutputItemDone(message: SSEMessage) -> OutputItemDone? {
+        guard let object = parseObject(message.data) else { return nil }
+        guard let item = object["item"] as? [String: Any] else { return nil }
+        guard let itemType = item["type"] as? String else { return nil }
+
+        let callId = item["call_id"] as? String ?? item["id"] as? String
+        let name = item["name"] as? String
+        let arguments = item["arguments"] as? String
+        return OutputItemDone(itemType: itemType, callId: callId, name: name, arguments: arguments)
     }
 }

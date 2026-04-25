@@ -46,6 +46,7 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
             stopReason: .endTurn
         )
         var ended = false
+        var pendingToolCalls: [Int: PendingToolCall] = [:]
 
         func text(from message: AssistantMessage) -> String {
             message.content.compactMap { block -> String? in
@@ -56,32 +57,54 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
             }.joined()
         }
 
-        func currentPartial() -> AssistantMessage {
-            AssistantMessage(
-                content: [.text(TextContent(text: text(from: partial)))],
-                stopReason: .endTurn
+        func buildFinalMessage(stopReason: StopReason) -> AssistantMessage {
+            var content: [AssistantBlock] = []
+            let textContent = text(from: partial)
+            if !textContent.isEmpty {
+                content.append(.text(TextContent(text: textContent)))
+            }
+            let sortedIndices = pendingToolCalls.keys.sorted()
+            for index in sortedIndices {
+                let pending = pendingToolCalls[index]!
+                if let name = pending.name {
+                    let id = pending.id ?? "call_\(index)"
+                    content.append(.toolCall(ToolCall(
+                        id: id,
+                        name: name,
+                        arguments: pending.arguments
+                    )))
+                }
+            }
+            return AssistantMessage(
+                content: content,
+                stopReason: stopReason
             )
         }
 
-        func endWithDone() {
+        func endWithDone(toolUse: Bool = false) {
             guard !ended else { return }
             ended = true
-            let final = currentPartial()
-            output.push(.textEnd(contentIndex: 0, content: text(from: final), partial: final))
-            output.push(.done(reason: .endTurn, message: final))
+            let stopReason: StopReason = toolUse ? .toolUse : .endTurn
+            let final = buildFinalMessage(stopReason: stopReason)
+            let textContent = text(from: partial)
+            if !textContent.isEmpty {
+                output.push(.textEnd(contentIndex: 0, content: textContent, partial: final))
+            }
+            output.push(.done(reason: stopReason, message: final))
             output.end(final)
         }
 
         func endWithError(reason: StopReason, message: String) {
             guard !ended else { return }
             ended = true
-            let final = AssistantMessage(
-                content: [.text(TextContent(text: text(from: partial)))],
+            let final = buildFinalMessage(stopReason: reason)
+            let finalWithError = AssistantMessage(
+                content: final.content,
                 stopReason: reason,
                 errorMessage: message
             )
-            output.push(.error(reason: reason, error: final))
-            output.end(final)
+            output.push(.error(reason: reason, error: finalWithError))
+            output.end(finalWithError)
         }
 
         func endAbortedIfNeeded() -> Bool {
@@ -110,13 +133,7 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
             return
         }
 
-        let requestBody = Self.RequestBody(
-            model: model.id,
-            stream: true,
-            messages: Self.buildMessages(from: context)
-        )
-
-        guard let body = try? JSONEncoder().encode(requestBody) else {
+        guard let body = Self.buildRequestBody(model: model.id, context: context, options: options) else {
             endWithError(reason: .error, message: "Failed to encode request body")
             return
         }
@@ -184,7 +201,7 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
                         let eventType = Self.resolveEventType(message: message)
                         if eventType == "done" {
                             sawStructuredChunk = true
-                            endWithDone()
+                            endWithDone(toolUse: !pendingToolCalls.isEmpty)
                             return
                         }
 
@@ -204,9 +221,21 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
                             output.push(.textDelta(contentIndex: 0, delta: delta, partial: partial))
                         }
 
-                        if Self.hasFinishReason(message: message) {
+                        if let toolDeltas = Self.resolveToolCallsDelta(message: message) {
                             sawStructuredChunk = true
-                            endWithDone()
+                            for (index, delta) in toolDeltas {
+                                var pending = pendingToolCalls[index] ?? PendingToolCall()
+                                if let id = delta.id { pending.id = id }
+                                if let name = delta.name { pending.name = name }
+                                if let args = delta.arguments { pending.arguments += args }
+                                pendingToolCalls[index] = pending
+                            }
+                        }
+
+                        if let finishReason = Self.resolveFinishReason(message: message), !finishReason.isEmpty {
+                            sawStructuredChunk = true
+                            let toolUse = (finishReason == "tool_calls" || finishReason == "function_call")
+                            endWithDone(toolUse: toolUse)
                             return
                         }
                     }
@@ -225,7 +254,7 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
                 let eventType = Self.resolveEventType(message: message)
                 if eventType == "done" {
                     sawStructuredChunk = true
-                    endWithDone()
+                    endWithDone(toolUse: !pendingToolCalls.isEmpty)
                     return
                 }
 
@@ -245,9 +274,21 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
                     output.push(.textDelta(contentIndex: 0, delta: delta, partial: partial))
                 }
 
-                if Self.hasFinishReason(message: message) {
+                if let toolDeltas = Self.resolveToolCallsDelta(message: message) {
                     sawStructuredChunk = true
-                    endWithDone()
+                    for (index, delta) in toolDeltas {
+                        var pending = pendingToolCalls[index] ?? PendingToolCall()
+                        if let id = delta.id { pending.id = id }
+                        if let name = delta.name { pending.name = name }
+                        if let args = delta.arguments { pending.arguments += args }
+                        pendingToolCalls[index] = pending
+                    }
+                }
+
+                if let finishReason = Self.resolveFinishReason(message: message), !finishReason.isEmpty {
+                    sawStructuredChunk = true
+                    let toolUse = (finishReason == "tool_calls" || finishReason == "function_call")
+                    endWithDone(toolUse: toolUse)
                     return
                 }
             }
@@ -294,17 +335,6 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
         }
     }
 
-    private struct RequestBody: Encodable {
-        let model: String
-        let stream: Bool
-        let messages: [InputMessage]
-    }
-
-    private struct InputMessage: Encodable {
-        let role: String
-        let content: String
-    }
-
     private static func completionsURL(baseURL: String) -> URL? {
         let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -312,11 +342,16 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
         return URL(string: "\(base)/v1/chat/completions")
     }
 
-    private static func buildMessages(from context: Context) -> [InputMessage] {
-        var messages: [InputMessage] = []
+    private static func buildRequestBody(model: String, context: Context, options: StreamOptions?) -> Data? {
+        var body: [String: Any] = [
+            "model": model,
+            "stream": true
+        ]
 
+        // Messages
+        var messages: [[String: Any]] = []
         if let system = context.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines), !system.isEmpty {
-            messages.append(InputMessage(role: "system", content: system))
+            messages.append(["role": "system", "content": system])
         }
 
         for message in context.messages {
@@ -324,23 +359,67 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
             case .user(let user):
                 let text = user.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !text.isEmpty {
-                    messages.append(InputMessage(role: "user", content: text))
+                    messages.append(["role": "user", "content": text])
                 }
             case .assistant(let assistant):
-                let text = assistant.content.compactMap { block -> String? in
+                let textBlocks = assistant.content.compactMap { block -> String? in
                     if case .text(let t) = block { return t.text }
                     return nil
-                }.joined().trimmingCharacters(in: .whitespacesAndNewlines)
-                if !text.isEmpty {
-                    messages.append(InputMessage(role: "assistant", content: text))
                 }
+                let toolCallBlocks = assistant.content.compactMap { block -> [String: Any]? in
+                    if case .toolCall(let tc) = block {
+                        return [
+                            "id": tc.id,
+                            "type": "function",
+                            "function": [
+                                "name": tc.name,
+                                "arguments": tc.arguments
+                            ]
+                        ]
+                    }
+                    return nil
+                }
+                var assistantMessage: [String: Any] = ["role": "assistant"]
+                let text = textBlocks.joined().trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty {
+                    assistantMessage["content"] = text
+                } else {
+                    assistantMessage["content"] = NSNull()
+                }
+                if !toolCallBlocks.isEmpty {
+                    assistantMessage["tool_calls"] = toolCallBlocks
+                }
+                messages.append(assistantMessage)
             case .tool(let toolResult):
-                let prefix = toolResult.isError ? "[tool error]" : "[tool result]"
-                messages.append(InputMessage(role: "user", content: "\(prefix) \(toolResult.toolCallId): \(toolResult.output)"))
+                messages.append([
+                    "role": "tool",
+                    "tool_call_id": toolResult.toolCallId,
+                    "content": toolResult.output
+                ])
             }
         }
+        body["messages"] = messages
 
-        return messages
+        // Tools
+        if let tools = options?.tools, !tools.isEmpty {
+            let toolsArray: [[String: Any]] = tools.map { tool in
+                var function: [String: Any] = ["name": tool.name]
+                if !tool.description.isEmpty {
+                    function["description"] = tool.description
+                }
+                if let params = try? JSONSerialization.jsonObject(with: tool.parametersJSON) {
+                    function["parameters"] = params
+                }
+                return ["type": "function", "function": function]
+            }
+            body["tools"] = toolsArray
+        }
+
+        if let toolChoice = options?.toolChoice, !toolChoice.isEmpty {
+            body["tool_choice"] = toolChoice
+        }
+
+        return try? JSONSerialization.data(withJSONObject: body)
     }
 
     private static func resolveEventType(message: SSEMessage) -> String {
@@ -396,17 +475,6 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
         return nil
     }
 
-    private static func hasFinishReason(message: SSEMessage) -> Bool {
-        guard let object = parseObject(message.data) else { return false }
-        guard let choices = object["choices"] as? [[String: Any]], let first = choices.first else {
-            return false
-        }
-        guard let finishReason = first["finish_reason"] as? String else {
-            return false
-        }
-        return !finishReason.isEmpty
-    }
-
     private static func resolveErrorMessage(message: SSEMessage) -> String? {
         guard let object = parseObject(message.data) else {
             return nil
@@ -435,5 +503,63 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
         guard let payload = data.data(using: .utf8) else { return nil }
         guard let object = try? JSONSerialization.jsonObject(with: payload) else { return nil }
         return object as? [String: Any]
+    }
+}
+
+// MARK: - Tool Call Parsing
+
+fileprivate struct PendingToolCall: Sendable {
+    var id: String?
+    var name: String?
+    var arguments: String = ""
+}
+
+fileprivate struct ToolCallDelta: Sendable {
+    let id: String?
+    let name: String?
+    let arguments: String?
+}
+
+extension OpenAIChatCompletionsProvider {
+    fileprivate static func resolveToolCallsDelta(message: SSEMessage) -> [Int: ToolCallDelta]? {
+        guard let object = parseObject(message.data) else { return nil }
+        guard let choices = object["choices"] as? [[String: Any]], let first = choices.first else {
+            return nil
+        }
+        guard let delta = first["delta"] as? [String: Any] else { return nil }
+
+        // Primary path: tool_calls
+        if let toolCalls = delta["tool_calls"] as? [[String: Any]] {
+            var result: [Int: ToolCallDelta] = [:]
+            for item in toolCalls {
+                guard let index = item["index"] as? Int else { continue }
+                let id = item["id"] as? String
+                var name: String?
+                var arguments: String?
+                if let function = item["function"] as? [String: Any] {
+                    name = function["name"] as? String
+                    arguments = function["arguments"] as? String
+                }
+                result[index] = ToolCallDelta(id: id, name: name, arguments: arguments)
+            }
+            return result.isEmpty ? nil : result
+        }
+
+        // Legacy path: function_call
+        if let functionCall = delta["function_call"] as? [String: Any] {
+            let name = functionCall["name"] as? String
+            let arguments = functionCall["arguments"] as? String
+            return [0: ToolCallDelta(id: nil, name: name, arguments: arguments)]
+        }
+
+        return nil
+    }
+
+    fileprivate static func resolveFinishReason(message: SSEMessage) -> String? {
+        guard let object = parseObject(message.data) else { return nil }
+        guard let choices = object["choices"] as? [[String: Any]], let first = choices.first else {
+            return nil
+        }
+        return first["finish_reason"] as? String
     }
 }

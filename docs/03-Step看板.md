@@ -75,6 +75,18 @@
 | PB-024 | auto-compact 二期 | Done | AI | `keepCount/minGap` 可配置，compact badge 可见且随输入清除 |
 | PB-025A | 工具防分页器卡住 | Done | AI | `ProcessRunner` 注入 `PAGER/GIT_PAGER/MANPAGER/SYSTEMD_PAGER=cat` + `stdin=/dev/null`，`bash/bg` 路径验证通过 |
 
+## Phase 4（Tool Call 解析与结构化协议）
+
+| Step ID | 标题 | 状态 | 负责人 | 备注 |
+|---|---|---|---|---|
+| STEP-029 | ChatCompletions 入站 tool_call 解析 | Done | AI | 支持 choices[].delta.tool_calls[] / function_call，PendingToolCall 聚合，text+tool 混合 |
+| STEP-030 | Responses 入站 tool_call 解析 | Done | AI | 支持 response.output_item.added / function_call_arguments.delta / output_item.done，参数分片聚合 |
+| STEP-031 | Provider 统一终止语义 | Done | AI | toolCall → .toolUse，无 toolCall → .endTurn，取消/错误不双终止 |
+| STEP-032 | FauxProvider 支持 tool_call 模拟 | Done | AI | 新增 text/toolCall/textThenToolCall/multipleToolCalls 四种模式，默认行为不变 |
+| STEP-033 | AI 层测试补齐（tool_call 专项） | Done | AI | arguments 分片、多 toolCall 顺序、text+tool 混合、.toolUse 判定、取消不双终止 |
+| STEP-034 | Agent 端到端验证（FauxProvider 闭环） | Done | AI | assistant(tool_call) → toolExecutionStart/End → tool_result → 第二轮，事件顺序断言 |
+| STEP-035 | Phase B 出站结构化工具协议 | Done | AI | StreamOptions 扩展 tools/toolChoice；请求体支持 tools/tool_choice；assistant tool_call 与 tool_result 结构化回灌（不再文本化降级） |
+
 ## Harness Engineer 阶段（HB-001~HB-005：参数校验层固化）
 
 | Step ID | 标题 | 状态 | 负责人 | 备注 |

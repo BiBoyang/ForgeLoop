@@ -513,4 +513,143 @@ final class AgentLoopToolExecutionTests: XCTestCase {
         }
         XCTAssertEqual(agentEndEvents.count, 1)
     }
+
+    // MARK: - 11) FauxProvider toolCall 模式端到端闭环
+
+    func testFauxProviderToolCallEndToEnd() async throws {
+        let executor = ToolExecutor()
+        executor.register(EchoTool())
+
+        // 第一轮：FauxProvider 返回 toolCall
+        let faux = FauxProvider(mode: .toolCall(name: "echo", arguments: "{\"msg\":\"hello\"}"))
+        let stream1 = faux.stream(model: testModel, context: Context(systemPrompt: "", messages: [.user(UserMessage(text: "run"))]), options: nil)
+
+        // 第二轮：FauxProvider 返回文本结束
+        let faux2 = FauxProvider(mode: .text)
+
+        let testModel = self.testModel
+        let counter = StreamCallCounter()
+        let streamFn: StreamFn = { _, context, _ in
+            let count = await Task { await counter.increment() }.value
+            if count == 1 {
+                return stream1
+            }
+            return faux2.stream(model: testModel, context: context, options: nil)
+        }
+
+        let collector = EventCollector()
+        let emit: AgentEventSink = { event in
+            await collector.append(event)
+        }
+
+        try? await AgentLoop.run(
+            prompts: [.user(UserMessage(text: "run"))],
+            context: AgentContext(systemPrompt: "", messages: []),
+            config: AgentLoopConfig(model: testModel, toolExecutor: executor, cwd: "/tmp"),
+            emit: emit,
+            cancellation: nil,
+            streamFn: streamFn
+        )
+
+        let events = await collector.events
+
+        // 断言顺序：assistant(tool_call) -> toolExecutionStart -> toolExecutionEnd -> tool_result -> 第二轮 -> agentEnd
+        let typeSequence = events.map(\.type)
+
+        let msgStartIdx = typeSequence.firstIndex(of: "message_start")
+        let msgEndIdx = typeSequence.firstIndex(of: "message_end")
+        let toolStartIdx = typeSequence.firstIndex(of: "tool_execution_start")
+        let toolEndIdx = typeSequence.firstIndex(of: "tool_execution_end")
+        let turnEndIdx = typeSequence.firstIndex(of: "turn_end")
+        let agentEndIdx = typeSequence.firstIndex(of: "agent_end")
+
+        XCTAssertNotNil(msgStartIdx)
+        XCTAssertNotNil(msgEndIdx)
+        XCTAssertNotNil(toolStartIdx)
+        XCTAssertNotNil(toolEndIdx)
+        XCTAssertNotNil(turnEndIdx)
+        XCTAssertNotNil(agentEndIdx)
+
+        // 顺序：messageEnd -> toolExecutionStart -> toolExecutionEnd -> turnEnd
+        XCTAssertLessThan(msgEndIdx!, toolStartIdx!)
+        XCTAssertLessThan(toolStartIdx!, toolEndIdx!)
+        XCTAssertLessThan(toolEndIdx!, turnEndIdx!)
+
+        // tool_result 也产生 messageEnd
+        let allMsgEnd = typeSequence.enumerated().filter { $0.element == "message_end" }.map { $0.offset }
+        XCTAssertGreaterThanOrEqual(allMsgEnd.count, 2) // assistant + tool_result
+
+        // 第二轮也发生（有第二个 turnStart）
+        let turnStartCount = typeSequence.filter { $0 == "turn_start" }.count
+        XCTAssertGreaterThanOrEqual(turnStartCount, 2)
+    }
+
+    // MARK: - 12) FauxProvider text+toolCall 混合模式
+
+    func testFauxProviderTextThenToolCall() async throws {
+        let executor = ToolExecutor()
+        executor.register(EchoTool())
+
+        let faux = FauxProvider(
+            tokenDelayNanos: 0,
+            mode: .textThenToolCall(text: "OK", toolName: "echo", toolArguments: "{\"msg\":\"hi\"}")
+        )
+
+        let stream1 = faux.stream(
+            model: testModel,
+            context: Context(systemPrompt: "", messages: [.user(UserMessage(text: "go"))]),
+            options: nil
+        )
+        let faux2 = FauxProvider(mode: .text)
+
+        let testModel = self.testModel
+        let counter = StreamCallCounter()
+        let streamFn: StreamFn = { _, context, _ in
+            let count = await Task { await counter.increment() }.value
+            if count == 1 {
+                return stream1
+            }
+            return faux2.stream(model: testModel, context: context, options: nil)
+        }
+
+        let collector = EventCollector()
+        let emit: AgentEventSink = { event in
+            await collector.append(event)
+        }
+
+        try? await AgentLoop.run(
+            prompts: [.user(UserMessage(text: "go"))],
+            context: AgentContext(systemPrompt: "", messages: []),
+            config: AgentLoopConfig(model: testModel, toolExecutor: executor, cwd: "/tmp"),
+            emit: emit,
+            cancellation: nil,
+            streamFn: streamFn
+        )
+
+        let events = await collector.events
+        let typeSequence = events.map(\.type)
+
+        // 验证有 textDelta 事件
+        let hasTextDelta = events.contains {
+            if case .messageUpdate(let assistant, _) = $0 {
+                return assistant.content.contains { block in
+                    if case .text(let t) = block { return !t.text.isEmpty }
+                    return false
+                }
+            }
+            return false
+        }
+        XCTAssertTrue(hasTextDelta)
+
+        // 验证有 tool 执行事件
+        let toolStartIdx = typeSequence.firstIndex(of: "tool_execution_start")
+        XCTAssertNotNil(toolStartIdx)
+
+        // 最终结果包含 toolCall
+        let agentEndEvents = events.compactMap { event -> [Message]? in
+            if case .agentEnd(let messages) = event { return messages }
+            return nil
+        }
+        XCTAssertEqual(agentEndEvents.count, 1)
+    }
 }

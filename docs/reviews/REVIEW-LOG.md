@@ -527,3 +527,64 @@
   - 文档同步：`03-Step看板.md` 新增 Harness Engineer 阶段；`REVIEW-LOG.md` 记录 HB-001~HB-005 要点；
   - `ARCHITECTURE.md` 补充工具参数契约与错误 taxonomy 为长期不变量；
   - 分层边界无破坏、事件语义无回归、无未解释测试跳过。
+
+## 2026-04-25（Phase 4：Tool Call 解析与结构化协议）
+
+- `STEP-029` 评审结论：`Pass`
+  - `OpenAIChatCompletionsProvider` 新增入站 tool_call 解析：支持 `choices[].delta.tool_calls[]` 主路径 + `choices[].delta.function_call` 兼容路径；
+  - `PendingToolCall` 按 index 聚合：id/name/arguments 分片合并，多段 arguments 正确拼接；
+  - `endWithDone` 不再写死 `.endTurn`：有 toolCall → `.toolUse`，无 toolCall → `.endTurn`；
+  - 验证通过：`swift test --filter OpenAIChatCompletionsProviderTests`（10/10）。
+
+- `STEP-030` 评审结论：`Pass`
+  - `OpenAIResponsesProvider` 新增入站 tool_call 解析：兼容 `response.output_item.added` / `response.function_call_arguments.delta` / `response.output_item.done`；
+  - `ResponsesPendingToolCall` 按 call_id 聚合 arguments 分片；
+  - 保持现有 text delta 行为不回归；
+  - 验证通过：`swift test --filter OpenAIResponsesProviderTests`（8/8）。
+
+- `STEP-031` 评审结论：`Pass`
+  - ChatCompletions / Responses 两处 provider 统一终止语义：
+    - `.toolUse`：存在 toolCall（finish_reason = tool_calls / function_call / pendingToolCalls 非空）；
+    - `.endTurn`：纯文本结束；
+    - `.aborted` / `.error`：保持不变；
+  - 取消/错误后 `ended` 标志保护，不出现双终止；
+  - 验证通过：`swift test --filter AI`（28/28）。
+
+- `STEP-032` 评审结论：`Pass`
+  - `FauxProvider` 新增可配置模式：`FauxProviderMode.text`（默认）/ `.toolCall` / `.textThenToolCall` / `.multipleToolCalls`；
+  - 默认行为完全不变，避免破坏现有调用方；
+  - toolCall 模式下 `done.reason = .toolUse`，`finalMessage.content` 含 `.toolCall(...)`；
+  - 验证通过：`swift test --filter FauxProviderToolCallTests`（5/5）+ `FauxProviderCancellationTests`（4/4）。
+
+- `STEP-033` 评审结论：`Pass`
+  - 新增 `OpenAIChatCompletionsProviderTests` 6 个 tool-call 专项测试：single/chunked/text+tool/multiple/cancelled/legacy-function_call；
+  - 新增 `OpenAIResponsesProviderTests` 4 个 tool-call 专项测试：single/text+tool/multiple/no-double-terminate-on-error；
+  - 新增 `FauxProviderToolCallTests` 5 个测试：mode/textThenToolCall/multiple/cancel/default-unchanged；
+  - 覆盖：arguments 分片拼接、多 toolCall 顺序稳定、text+tool 混合、.toolUse stopReason、取消/错误不双终止；
+  - 全量 AI 层：`swift test --filter AI`（28/28）。
+
+- `STEP-034` 评审结论：`Pass`
+  - `AgentLoopToolExecutionTests` 新增 2 个端到端测试：
+    - `testFauxProviderToolCallEndToEnd`：FauxProvider.toolCall 模式驱动完整 AgentLoop 闭环，断言 messageEnd → toolExecutionStart → toolExecutionEnd → turnEnd → 第二轮 turnStart；
+    - `testFauxProviderTextThenToolCall`：textThenToolCall 模式验证 textDelta + toolCall 混合路径；
+  - 验证通过：`swift test --filter AgentLoopToolExecutionTests`（12/12）。
+
+- `STEP-035`（Phase B）评审结论：`Pass`
+  - `StreamOptions` 扩展 `tools: [ToolDefinition]?` + `toolChoice: String?`；
+  - `ToolDefinition`：name/description/parametersJSON（Sendable 兼容）；
+  - `OpenAIChatCompletionsProvider` 请求体改用 `JSONSerialization` 构建，支持结构化消息：
+    - assistant message：text + `tool_calls` 数组（含 id/type/function）；
+    - tool message：`role=tool` + `tool_call_id` + `content`（不再伪装成 user 文本）；
+  - 请求体支持 `tools` / `tool_choice` 声明；
+  - 新增 `testStructuredToolMessagesInRequestBody` 验证结构化回灌格式；
+  - 现有测试无回归：`swift test --filter OpenAIChatCompletionsProviderTests`（11/11）。
+
+- Phase 4 全量回归：
+  - `swift test --filter OpenAIChatCompletionsProviderTests`（11/11）
+  - `swift test --filter OpenAIResponsesProviderTests`（8/8）
+  - `swift test --filter FauxProviderCancellationTests`（4/4）
+  - `swift test --filter FauxProviderToolCallTests`（5/5）
+  - `swift test --filter AgentLoopToolExecutionTests`（12/12）
+  - `swift test --filter Agent`（158/158）
+  - `swift test --filter AI`（28/28）
+  - `swift test`（全量通过）
