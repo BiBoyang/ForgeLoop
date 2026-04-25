@@ -214,10 +214,10 @@ final class PromptControllerTests: XCTestCase {
         // slash 命令应该正常执行，不影响 steer 队列
         let result = try await controller.submit("/model")
 
-        if case .feedback(let text) = result {
-            XCTAssertTrue(text.contains("faux-coding-model"))
+        if case .showModelPicker(let state) = result {
+            XCTAssertEqual(state.selectedItem?.id, "faux-coding-model")
         } else {
-            XCTFail("Expected feedback")
+            XCTFail("Expected model picker")
         }
 
         // steer 队列应保持不变

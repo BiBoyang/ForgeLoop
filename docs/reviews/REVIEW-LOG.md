@@ -397,3 +397,44 @@
   - `cd /Users/boyang/Desktop/WebKit_build/ForgeLoopTUI/Examples/MarkdownShowcase && swift run MarkdownShowcase sample`（`markdownview-sample.md` 中表格渲染为紧凑 box table）
   - `swift test --filter MarkdownEngineTests`（ForgeLoopCliTests，10 passed）
   - `swift test --filter MarkdownRenderOptionsTests`（2 passed）
+
+## 2026-04-25
+- Post-v0.1.1 / PB-013（ForgeLoop 主仓接入 `TextInputState` 与 `/model` picker）完成：
+  - `CodingTUI` 输入状态从裸 `inputBuffer: String` 迁移到 `ForgeLoopTUI.TextInputState`，输入渲染改为 `render(prefix:totalWidth:)`，并把真实 `cursorOffset` 传给 `TUI.requestRender(...)`；
+  - 主仓补齐最小编辑按键闭环：`TUIRunner` 新增 `Left` / `Right` / `Home` / `End` / `Delete` 解析，`CodingTUI` 路由到 `TextInputAction`，保留现有 history / submit / Esc 语义；
+  - `PromptController.SubmitResult` 新增 `showModelPicker(ListPickerState)`，idle 状态下 `/model` 改为打开 `ListPickerRenderer`，streaming 状态保持原来的 feedback 路径，不打断当前 run；
+  - picker 选择确认后仍复用原 `/model <id>` 切换逻辑，继续保留 `api` / `provider` / `baseUrl` 与 `ModelStore.save()` 行为；
+  - `CodingTUI` 新增 modal 焦点路由：picker 打开时，`↑↓` 只移动列表选择，`Enter` 确认，`Esc` 取消，关闭后恢复普通输入 footer；
+  - `README.md` 同步补充“Terminal Interaction”说明，看板新增 `PB-013`。
+- 验证通过：
+  - `swift test --filter SlashCommandsTests`（11 passed）
+  - `swift test --filter PromptControllerTests`（7 passed）
+  - `swift test --filter TUIRunnerTests`（29 passed）
+  - `swift test --filter ForgeLoopCliTests`（215 passed）
+
+- Post-v0.1.1 / PB-014（ForgeLoop 状态栏升级）完成：
+  - 新增纯函数状态模型：`CodingStatusPhase`、`BackgroundTaskSummary`、`CodingStatusSnapshot`、`resolveStatusPhase(...)`、`makeStatusLines(...)`，把状态栏逻辑从 `CodingTUI` 内联字符串拼接升级为可测试的 phase + badges 组合；
+  - 状态栏主状态从原来的单一 `idle/streaming` 升级为：`ready`、`generating`、`aborting`、`selecting model`、`background tasks`；
+  - `CodingTUI` 现在会基于 `pendingToolCount`、后台任务运行/失败/取消数量、queued steering messages 数量生成第二行 badges；
+  - 用户在 streaming 中按 `Esc` 后，状态栏会先切到 `aborting`，待 `agentEnd` / idle 后自动回落；
+  - `/model` picker 打开时，状态栏主状态会切到 `selecting model`，与 footer modal 焦点保持一致；
+  - `README.md` 同步补充状态栏说明，看板新增 `PB-014`。
+- 验证通过：
+  - `swift test --filter CodingTUIStatusTests`（6 passed）
+  - `swift test --filter LayoutRendererTests`（10 passed）
+  - `swift test --filter ForgeLoopCliTests`（221 passed）
+
+- Post-v0.1.1 / PB-015（Slash registry 与命令反馈可见性收口）完成：
+  - 新增 `Sources/ForgeLoopCli/SlashCommandRegistry.swift`，引入最小版 `SlashCommand` / `SlashCommandRegistry` / `SlashCommandContext`，把 `/model`、`/compact`、`/help`、`/exit` 从 `PromptController` 内部 `switch` 收口为可注册命令表；
+  - `PromptController` 改为通过 registry 分发 slash 命令，保留既有行为与文案，并补 `SlashCommandRegistryTests` 覆盖主命令、`/quit` alias、help 文本与 unknown command 提示；
+  - 修复 `/help` 的真实可见性问题：此前 feedback 虽进入 slash 路由，但 TTY idle 模式 footer 不显示 transcript，导致用户看起来“无反应”；现在命令 feedback 改走 footer notice 区，`/help`、`/compact`、模型切换与错误反馈都会直接在底部显示；
+  - `CodingTUI` 新增 `makeFooterNoticeLines(...)`，多行反馈使用 warning + dimmed 组合渲染，并在继续输入或切换状态时自动清空；
+  - `/model` picker 候选补齐 DeepSeek 兼容逻辑：当当前模型 `baseUrl` 指向 `deepseek.com` 或 `id` 前缀为 `deepseek-` 时，picker 会保留 `deepseek-chat` / `deepseek-reasoner`，避免临时切到其他 model id 后无法切回；
+  - `ForgeLoopTUI` 同步修复 cursor-anchor 回归：`TUI` 记录上一次 `cursorOffset`，同帧内容不变时按相对差值移动光标，修复 `Left` 一次跳两格、`Right` 方向错误的问题。
+- 验证通过：
+  - `swift test --filter SlashCommandRegistryTests`（4 passed）
+  - `swift test --filter SlashCommandsTests`（12 passed）
+  - `swift test --filter PromptControllerTests`（7 passed）
+  - `swift test --filter CodingTUIStatusTests`（7 passed）
+  - `swift test --filter ForgeLoopCliTests`（227 passed）
+  - `cd /Users/boyang/Desktop/WebKit_build/ForgeLoopTUI && swift test --filter TUITests`（6 passed）

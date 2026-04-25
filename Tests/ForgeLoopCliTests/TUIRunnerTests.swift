@@ -189,12 +189,75 @@ final class TUIRunnerTests: XCTestCase {
         XCTAssertEqual(collected, [.down])
     }
 
-    func testUnknownCSISequence() async {
+    func testArrowLeft() async {
         let mock = MockInputSource()
         let runner = TUIRunner(inputSource: mock, escFlushNanos: 5_000_000)
         let events = await runner.run()
 
-        // ESC [ 3 ~ (delete key on some terminals) — not up/down/paste
+        await mock.append([0x1B, 0x5B, 0x44])
+
+        var collected: [KeyEvent] = []
+        for await event in events {
+            collected.append(event)
+            break
+        }
+
+        XCTAssertEqual(collected, [.left])
+    }
+
+    func testArrowRight() async {
+        let mock = MockInputSource()
+        let runner = TUIRunner(inputSource: mock, escFlushNanos: 5_000_000)
+        let events = await runner.run()
+
+        await mock.append([0x1B, 0x5B, 0x43])
+
+        var collected: [KeyEvent] = []
+        for await event in events {
+            collected.append(event)
+            break
+        }
+
+        XCTAssertEqual(collected, [.right])
+    }
+
+    func testHomeKey() async {
+        let mock = MockInputSource()
+        let runner = TUIRunner(inputSource: mock, escFlushNanos: 5_000_000)
+        let events = await runner.run()
+
+        await mock.append([0x1B, 0x5B, 0x48])
+
+        var collected: [KeyEvent] = []
+        for await event in events {
+            collected.append(event)
+            break
+        }
+
+        XCTAssertEqual(collected, [.home])
+    }
+
+    func testEndKey() async {
+        let mock = MockInputSource()
+        let runner = TUIRunner(inputSource: mock, escFlushNanos: 5_000_000)
+        let events = await runner.run()
+
+        await mock.append([0x1B, 0x5B, 0x46])
+
+        var collected: [KeyEvent] = []
+        for await event in events {
+            collected.append(event)
+            break
+        }
+
+        XCTAssertEqual(collected, [.end])
+    }
+
+    func testDeleteForwardKey() async {
+        let mock = MockInputSource()
+        let runner = TUIRunner(inputSource: mock, escFlushNanos: 5_000_000)
+        let events = await runner.run()
+
         await mock.append([0x1B, 0x5B, 0x33, 0x7E])
 
         var collected: [KeyEvent] = []
@@ -203,7 +266,24 @@ final class TUIRunnerTests: XCTestCase {
             break
         }
 
-        XCTAssertEqual(collected, [.csi([0x1B, 0x5B, 0x33, 0x7E])])
+        XCTAssertEqual(collected, [.delete])
+    }
+
+    func testUnknownCSISequence() async {
+        let mock = MockInputSource()
+        let runner = TUIRunner(inputSource: mock, escFlushNanos: 5_000_000)
+        let events = await runner.run()
+
+        // ESC [ 5 ~ (page up on some terminals) — still unsupported here
+        await mock.append([0x1B, 0x5B, 0x35, 0x7E])
+
+        var collected: [KeyEvent] = []
+        for await event in events {
+            collected.append(event)
+            break
+        }
+
+        XCTAssertEqual(collected, [.csi([0x1B, 0x5B, 0x35, 0x7E])])
     }
 
     func testFragmentedEscThenCSI() async throws {

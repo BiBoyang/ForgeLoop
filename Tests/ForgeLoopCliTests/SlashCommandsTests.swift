@@ -33,19 +33,20 @@ final class SlashCommandsTests: XCTestCase {
         }
     }
 
-    // MARK: - /model 无参数：显示当前模型
+    // MARK: - /model 无参数：打开 picker
 
-    func testModelCommandShowsCurrentModel() async throws {
+    func testModelCommandShowsPickerWhenIdle() async throws {
         let agent = Agent(initialState: AgentInitialState(model: testModel))
         let controller = PromptController(agent: agent)
 
         let result = try await controller.submit("/model")
 
-        if case .feedback(let text) = result {
-            XCTAssertTrue(text.contains("faux-coding-model"))
-            XCTAssertTrue(text.contains("Faux Coding Model"))
+        if case .showModelPicker(let state) = result {
+            XCTAssertEqual(state.title, "Select model")
+            XCTAssertEqual(state.selectedItem?.id, "faux-coding-model")
+            XCTAssertTrue(state.items.contains(where: { $0.id == "gpt-4.1-mini" }))
         } else {
-            XCTFail("Expected feedback result, got \(result)")
+            XCTFail("Expected picker result, got \(result)")
         }
     }
 
@@ -91,18 +92,41 @@ final class SlashCommandsTests: XCTestCase {
         XCTAssertEqual(loaded?.provider, "faux")
     }
 
-    // MARK: - /model 无参数：显示当前模型（含尾随空格也视为无参数）
+    // MARK: - /model 无参数：含尾随空格也打开 picker
 
-    func testModelCommandTrailingSpacesShowsCurrentModel() async throws {
+    func testModelCommandTrailingSpacesShowsPicker() async throws {
         let agent = Agent(initialState: AgentInitialState(model: testModel))
         let controller = PromptController(agent: agent)
 
         let result = try await controller.submit("/model   ")
 
-        if case .feedback(let text) = result {
-            XCTAssertTrue(text.contains("faux-coding-model"))
+        if case .showModelPicker(let state) = result {
+            XCTAssertEqual(state.selectedItem?.id, "faux-coding-model")
         } else {
-            XCTFail("Expected current model feedback")
+            XCTFail("Expected picker result")
+        }
+    }
+
+    func testModelPickerKeepsDeepSeekOptionsWhenUsingDeepSeekBaseURL() async throws {
+        let deepSeekModel = Model(
+            id: "gpt-4o",
+            name: "gpt-4o",
+            api: "openai-chat-completions",
+            provider: "openai",
+            baseUrl: "https://api.deepseek.com"
+        )
+        let agent = Agent(initialState: AgentInitialState(model: deepSeekModel))
+        let controller = PromptController(agent: agent)
+
+        let result = try await controller.submit("/model")
+
+        if case .showModelPicker(let state) = result {
+            let ids = state.items.map(\.id)
+            XCTAssertTrue(ids.contains("gpt-4o"))
+            XCTAssertTrue(ids.contains("deepseek-chat"))
+            XCTAssertTrue(ids.contains("deepseek-reasoner"))
+        } else {
+            XCTFail("Expected picker result")
         }
     }
 

@@ -12,6 +12,11 @@ public enum KeyEvent: Sendable, Equatable {
     case escape
     case ctrlC
     case backspace
+    case delete
+    case left
+    case right
+    case home
+    case end
     case csi([UInt8])
     case up
     case down
@@ -169,6 +174,13 @@ actor KeyParser {
     private let bracketedPasteEnd: [UInt8] = [0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E]   // ESC[201~
     private let arrowUp: [UInt8] = [0x1B, 0x5B, 0x41]                                 // ESC[A
     private let arrowDown: [UInt8] = [0x1B, 0x5B, 0x42]                               // ESC[B
+    private let arrowRight: [UInt8] = [0x1B, 0x5B, 0x43]                              // ESC[C
+    private let arrowLeft: [UInt8] = [0x1B, 0x5B, 0x44]                               // ESC[D
+    private let homeCSI: [UInt8] = [0x1B, 0x5B, 0x48]                                 // ESC[H
+    private let endCSI: [UInt8] = [0x1B, 0x5B, 0x46]                                  // ESC[F
+    private let homeTilde: [UInt8] = [0x1B, 0x5B, 0x31, 0x7E]                         // ESC[1~
+    private let endTilde: [UInt8] = [0x1B, 0x5B, 0x34, 0x7E]                          // ESC[4~
+    private let deleteForward: [UInt8] = [0x1B, 0x5B, 0x33, 0x7E]                     // ESC[3~
     private func handleCSI(_ csiBytes: [UInt8], cont: AsyncStream<KeyEvent>.Continuation) {
         switch csiBytes {
         case bracketedPasteStart:
@@ -178,6 +190,16 @@ actor KeyParser {
             cont.yield(.up)
         case arrowDown:
             cont.yield(.down)
+        case arrowRight:
+            cont.yield(.right)
+        case arrowLeft:
+            cont.yield(.left)
+        case homeCSI, homeTilde:
+            cont.yield(.home)
+        case endCSI, endTilde:
+            cont.yield(.end)
+        case deleteForward:
+            cont.yield(.delete)
         default:
             cont.yield(.csi(csiBytes))
         }

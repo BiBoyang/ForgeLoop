@@ -61,6 +61,9 @@
 | PB-010 | Streaming planner 上移到 `ForgeLoopTUI` | Done | AI | `StreamingTranscriptAppendState` 从 `ForgeLoopCli` 迁移到 `ForgeLoopTUI` target，并同步独立仓库 |
 | PB-011 | `ForgeLoopCliTests` 性能门禁重校准 | Done | AI | 更新 `render-small-first` / `render-medium-first` 基线，`ForgeLoopCliTests` 208/208 全绿 |
 | PB-012 | ForgeLoop 接入可配置宽表策略 | Done | AI | `CodingTUI` 显式传入 app-level `MarkdownRenderOptions`；宽表默认 compact/truncate，应用层可继续调整 |
+| PB-013 | ForgeLoop 主仓接入 `TextInputState` 与 `/model` picker | Done | AI | `CodingTUI` 改用 `TextInputState` + 真光标偏移；`/model` 空参数打开 `ListPickerState/ListPickerRenderer`；`ForgeLoopCliTests` 215/215 全绿 |
+| PB-014 | ForgeLoop 状态栏升级 | Done | AI | 状态栏升级为 phase + badges：`ready/generating/aborting/selecting model/background tasks`，并显示 tools/bg/queued 信息；`ForgeLoopCliTests` 221/221 全绿 |
+| PB-015 | Slash registry 与命令反馈可见性收口 | Done | AI | `PromptController` 改接 `SlashCommandRegistry`；`/help` 等反馈改走 footer notice；补齐 DeepSeek picker 与 cursor-anchor hotfix；`ForgeLoopCliTests` 227/227 全绿 |
 
 ## Phase 3 建议执行顺序（V2）
 
