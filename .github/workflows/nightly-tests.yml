@@ -80,15 +80,15 @@ jobs:
 
       - name: Run Tests
         run: swift test 2>&1 | tee test.log
-        continue-on-error: true
 
       - name: Show test results
+        if: always()
         run: |
           echo "=== BUILD LOG (last 100 lines) ==="
-          tail -100 build.log || true
+          tail -100 build.log 2>/dev/null || echo "(build.log not found)"
           echo ""
           echo "=== TEST LOG (last 200 lines) ==="
-          tail -200 test.log || true
+          tail -200 test.log 2>/dev/null || echo "(test.log not found)"
 
       - name: Upload logs on failure
         if: failure()
