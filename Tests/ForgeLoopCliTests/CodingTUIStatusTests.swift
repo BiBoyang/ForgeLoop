@@ -1,6 +1,7 @@
 import XCTest
 @testable import ForgeLoopCli
 @testable import ForgeLoopAgent
+import ForgeLoopTUI
 
 final class CodingTUIStatusTests: XCTestCase {
     func testResolveStatusPhasePrefersModelPicker() {
@@ -304,5 +305,27 @@ final class CodingTUIStatusTests: XCTestCase {
 
         XCTAssertEqual(lines.count, 1)
         XCTAssertFalse(lines[0].contains("compacted"))
+    }
+
+    // MARK: - RenderLoop coalescing guard
+
+    func testShouldCoalesceWithRenderLoopOnlyForNormalCommittedOnlyFrames() {
+        let frame = ComposedFrame(committed: ["a"], live: [], cursorOffset: nil)
+        XCTAssertTrue(shouldCoalesceWithRenderLoop(frame: frame, priority: .normal))
+    }
+
+    func testShouldCoalesceWithRenderLoopRejectsImmediatePriority() {
+        let frame = ComposedFrame(committed: ["a"], live: [], cursorOffset: nil)
+        XCTAssertFalse(shouldCoalesceWithRenderLoop(frame: frame, priority: .immediate))
+    }
+
+    func testShouldCoalesceWithRenderLoopRejectsLiveFrames() {
+        let frame = ComposedFrame(committed: ["a"], live: ["live"], cursorOffset: nil)
+        XCTAssertFalse(shouldCoalesceWithRenderLoop(frame: frame, priority: .normal))
+    }
+
+    func testShouldCoalesceWithRenderLoopRejectsCursorAnchoredFrames() {
+        let frame = ComposedFrame(committed: ["a"], live: [], cursorOffset: 1)
+        XCTAssertFalse(shouldCoalesceWithRenderLoop(frame: frame, priority: .normal))
     }
 }

@@ -319,6 +319,13 @@ private struct FooterRenderState {
     let cursorOffset: Int?
 }
 
+func shouldCoalesceWithRenderLoop(
+    frame: ComposedFrame,
+    priority: RenderLoop.Priority
+) -> Bool {
+    priority == .normal && frame.live.isEmpty && frame.cursorOffset == nil
+}
+
 @MainActor
 func runCodingTUIInternal(
     model: Model,
@@ -340,13 +347,13 @@ func runCodingTUIInternal(
         })
 
     let outputFrame: @Sendable (ComposedFrame, RenderLoop.Priority) -> Void = { [tui, renderLoop] frame, priority in
-        if let cursorOffset = frame.cursorOffset {
-            tui.requestRender(lines: frame.committed, cursorOffset: cursorOffset)
-        } else if let renderLoop {
-            renderLoop.submit(frame: frame.committed, priority: priority)
-        } else {
-            tui.requestRender(lines: frame.committed)
+        if let renderLoop, shouldCoalesceWithRenderLoop(frame: frame, priority: priority) {
+            renderLoop.submit(frame: frame.committed, priority: .normal)
+            return
         }
+        // Keep a single frame-oriented render path so future live-region frames
+        // are not accidentally flattened to committed-only output.
+        tui.render(frame: frame)
     }
     var hasPrintedStaticHeader = false
     var appendModeActive = false
