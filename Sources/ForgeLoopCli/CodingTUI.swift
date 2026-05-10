@@ -335,7 +335,7 @@ func runCodingTUIInternal(
     let tui = TUI(isTTY: isInteractiveTTY)
     let renderer = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
     let agent = await makeCodingAgent(CodingAgentConfig(model: model, cwd: cwd))
-    let screenLayoutRenderer = ScreenLayoutRenderer()
+    _ = ScreenLayoutRenderer() // retained for future use; all rendering now goes through CodingTUIFrameBuilder
     let modelStore = ModelStore()
     let pickerRenderer = ListPickerRenderer()
 
@@ -580,23 +580,28 @@ func runCodingTUIInternal(
             let footerRender: FooterRenderState = {
                 if let activeModelPicker {
                     let inputLines = pickerRenderer.render(state: activeModelPicker)
-                    let screenLayout = ScreenLayout(
-                        queue: queueLines,
-                        status: (activeFooterNotice?.lines ?? []) + statusLines,
-                        input: inputLines
-                    )
-                    let frame = screenLayoutRenderer.render(layout: screenLayout, config: config)
+                    let frame = CodingTUIFrameBuilder.build(input: .init(
+                        queueLines: queueLines,
+                        statusLines: (activeFooterNotice?.lines ?? []) + statusLines,
+                        inputLines: inputLines,
+                        terminalHeight: config.terminalHeight,
+                        terminalWidth: config.terminalWidth,
+                        showHeader: config.showHeader
+                    ))
                     return FooterRenderState(inputLines: inputLines, frame: frame, cursorOffset: nil)
                 }
 
                 let inputRender = inputState.render(prefix: "❯ ", totalWidth: config.terminalWidth)
                 let inputLines = makeInputLines(inputLine: inputRender.line, attachmentCount: attachmentStore.count)
-                let screenLayout = ScreenLayout(
-                    queue: queueLines,
-                    status: (activeFooterNotice?.lines ?? []) + statusLines,
-                    input: inputLines
-                )
-                let frame = screenLayoutRenderer.render(layout: screenLayout, config: config, cursorOffset: inputRender.cursorOffset)
+                let frame = CodingTUIFrameBuilder.build(input: .init(
+                    queueLines: queueLines,
+                    statusLines: (activeFooterNotice?.lines ?? []) + statusLines,
+                    inputLines: inputLines,
+                    terminalHeight: config.terminalHeight,
+                    terminalWidth: config.terminalWidth,
+                    showHeader: config.showHeader,
+                    cursorOffset: inputRender.cursorOffset
+                ))
                 return FooterRenderState(
                     inputLines: inputLines,
                     frame: frame,

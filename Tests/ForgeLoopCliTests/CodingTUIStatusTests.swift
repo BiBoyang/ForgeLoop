@@ -378,4 +378,37 @@ final class CodingTUIStatusTests: XCTestCase {
         XCTAssertTrue(frame.live.isEmpty)
         XCTAssertNil(frame.cursorOffset)
     }
+
+    func testFrameBuilderFooterOnlyPathMatchesDirectRender() {
+        // Simulates the TTY footer path: queue + status + input (no header/transcript)
+        let input = CodingTUIFrameBuilder.Input(
+            queueLines: ["q1"],
+            statusLines: ["STATUS"],
+            inputLines: ["> hello"],
+            terminalHeight: 24,
+            terminalWidth: 80,
+            cursorOffset: 3
+        )
+        let frame = CodingTUIFrameBuilder.build(input: input)
+
+        XCTAssertEqual(frame.committed, ["", "q1", "", "STATUS"])
+        XCTAssertEqual(frame.live, ["", "> hello"])
+        XCTAssertEqual(frame.cursorOffset, 3)
+    }
+
+    func testFrameBuilderPickerPathHasNoCursorOffset() {
+        // Simulates the picker path: input lines from ListPickerRenderer, no cursorOffset
+        let input = CodingTUIFrameBuilder.Input(
+            queueLines: ["q1"],
+            statusLines: ["STATUS"],
+            inputLines: ["[ ] option 1", "[x] option 2"],
+            terminalHeight: 24,
+            terminalWidth: 80
+        )
+        let frame = CodingTUIFrameBuilder.build(input: input)
+
+        XCTAssertEqual(frame.committed, ["", "q1", "", "STATUS"])
+        XCTAssertEqual(frame.live, ["", "[ ] option 1", "[x] option 2"])
+        XCTAssertNil(frame.cursorOffset)
+    }
 }
