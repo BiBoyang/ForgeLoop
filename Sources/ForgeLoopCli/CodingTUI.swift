@@ -396,23 +396,28 @@ func runCodingTUIInternal(
     ) -> FooterRenderState {
         if let activeModelPicker {
             let inputLines = pickerRenderer.render(state: activeModelPicker)
-            let screenLayout = ScreenLayout(
-                queue: queueLines,
-                status: (activeFooterNotice?.lines ?? []) + statusLines,
-                input: inputLines
-            )
-            let frame = screenLayoutRenderer.render(layout: screenLayout, config: config)
+            let frame = CodingTUIFrameBuilder.build(input: .init(
+                queueLines: queueLines,
+                statusLines: (activeFooterNotice?.lines ?? []) + statusLines,
+                inputLines: inputLines,
+                terminalHeight: config.terminalHeight,
+                terminalWidth: config.terminalWidth,
+                showHeader: config.showHeader
+            ))
             return FooterRenderState(inputLines: inputLines, frame: frame, cursorOffset: nil)
         }
 
         let inputRender = inputState.render(prefix: "❯ ", totalWidth: config.terminalWidth)
         let inputLines = makeInputLines(inputLine: inputRender.line, attachmentCount: attachmentStore.count)
-        let screenLayout = ScreenLayout(
-            queue: queueLines,
-            status: (activeFooterNotice?.lines ?? []) + statusLines,
-            input: inputLines
-        )
-        let frame = screenLayoutRenderer.render(layout: screenLayout, config: config, cursorOffset: inputRender.cursorOffset)
+        let frame = CodingTUIFrameBuilder.build(input: .init(
+            queueLines: queueLines,
+            statusLines: (activeFooterNotice?.lines ?? []) + statusLines,
+            inputLines: inputLines,
+            terminalHeight: config.terminalHeight,
+            terminalWidth: config.terminalWidth,
+            showHeader: config.showHeader,
+            cursorOffset: inputRender.cursorOffset
+        ))
         return FooterRenderState(inputLines: inputLines, frame: frame, cursorOffset: inputRender.cursorOffset)
     }
 
@@ -458,15 +463,17 @@ func runCodingTUIInternal(
         )
 
         guard tui.isTTY else {
-            let screenLayout = ScreenLayout(
-                header: headerLines,
-                transcript: renderer.transcriptLines,
-                queue: queueLines,
-                status: (activeFooterNotice?.lines ?? []) + statusLines,
-                input: footerRender.inputLines,
-                pinnedTranscriptRange: renderer.preferredPinnedRange
-            )
-            let frame = screenLayoutRenderer.render(layout: screenLayout, config: config)
+            let frame = CodingTUIFrameBuilder.build(input: .init(
+                headerLines: headerLines,
+                transcriptLines: renderer.transcriptLines,
+                queueLines: queueLines,
+                statusLines: (activeFooterNotice?.lines ?? []) + statusLines,
+                inputLines: footerRender.inputLines,
+                pinnedTranscriptRange: renderer.preferredPinnedRange,
+                terminalHeight: config.terminalHeight,
+                terminalWidth: config.terminalWidth,
+                showHeader: config.showHeader
+            ))
             outputFrame(frame, priority)
             return
         }
@@ -598,15 +605,17 @@ func runCodingTUIInternal(
             }()
 
             guard tui.isTTY else {
-                let screenLayout = ScreenLayout(
-                    header: headerLines,
-                    transcript: renderer.transcriptLines,
-                    queue: queueLines,
-                    status: (activeFooterNotice?.lines ?? []) + statusLines,
-                    input: footerRender.inputLines,
-                    pinnedTranscriptRange: renderer.preferredPinnedRange
-                )
-                let frame = screenLayoutRenderer.render(layout: screenLayout, config: config)
+                let frame = CodingTUIFrameBuilder.build(input: .init(
+                    headerLines: headerLines,
+                    transcriptLines: renderer.transcriptLines,
+                    queueLines: queueLines,
+                    statusLines: (activeFooterNotice?.lines ?? []) + statusLines,
+                    inputLines: footerRender.inputLines,
+                    pinnedTranscriptRange: renderer.preferredPinnedRange,
+                    terminalHeight: config.terminalHeight,
+                    terminalWidth: config.terminalWidth,
+                    showHeader: config.showHeader
+                ))
                 outputFrame(frame, eventPriority)
                 return
             }

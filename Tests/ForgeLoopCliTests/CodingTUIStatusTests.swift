@@ -328,4 +328,54 @@ final class CodingTUIStatusTests: XCTestCase {
         let frame = ComposedFrame(committed: ["a"], live: [], cursorOffset: 1)
         XCTAssertFalse(shouldCoalesceWithRenderLoop(frame: frame, priority: .normal))
     }
+
+    // MARK: - CodingTUIFrameBuilder
+
+    func testFrameBuilderProducesSameCommittedLiveStructureAsDirectRender() {
+        let input = CodingTUIFrameBuilder.Input(
+            headerLines: ["H"],
+            transcriptLines: ["T1", "T2"],
+            queueLines: ["Q"],
+            statusLines: ["S"],
+            inputLines: ["> "],
+            terminalHeight: 24,
+            terminalWidth: 80,
+            showHeader: true,
+            cursorOffset: 2
+        )
+        let frame = CodingTUIFrameBuilder.build(input: input)
+
+        XCTAssertEqual(frame.committed, ["H", "T1", "T2", "", "Q", "", "S"])
+        XCTAssertEqual(frame.live, ["", "> "])
+        XCTAssertEqual(frame.cursorOffset, 2)
+    }
+
+    func testFrameBuilderWithPinnedRangePreservesPinnedInOutput() {
+        let input = CodingTUIFrameBuilder.Input(
+            transcriptLines: ["old1", "old2", "pin1", "pin2", "after1"],
+            pinnedTranscriptRange: 2..<4,
+            terminalHeight: 4,
+            terminalWidth: 80
+        )
+        let frame = CodingTUIFrameBuilder.build(input: input)
+
+        // Budget 4: pinned (2 lines) + after1 (1) + old2 (1) = 4
+        // old1 dropped; order preserved.
+        XCTAssertEqual(frame.committed, ["old2", "pin1", "pin2", "after1"])
+        XCTAssertTrue(frame.live.isEmpty)
+    }
+
+    func testFrameBuilderEmptyInputProducesEmptyLive() {
+        let input = CodingTUIFrameBuilder.Input(
+            headerLines: ["H"],
+            transcriptLines: ["T"],
+            terminalHeight: 24,
+            terminalWidth: 80
+        )
+        let frame = CodingTUIFrameBuilder.build(input: input)
+
+        XCTAssertEqual(frame.committed, ["H", "T"])
+        XCTAssertTrue(frame.live.isEmpty)
+        XCTAssertNil(frame.cursorOffset)
+    }
 }
