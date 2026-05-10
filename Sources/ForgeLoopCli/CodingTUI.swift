@@ -335,7 +335,6 @@ func runCodingTUIInternal(
     let tui = TUI(isTTY: isInteractiveTTY)
     let renderer = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
     let agent = await makeCodingAgent(CodingAgentConfig(model: model, cwd: cwd))
-    _ = ScreenLayoutRenderer() // retained for future use; all rendering now goes through CodingTUIFrameBuilder
     let modelStore = ModelStore()
     let pickerRenderer = ListPickerRenderer()
 
