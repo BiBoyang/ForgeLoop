@@ -2,6 +2,11 @@ import Foundation
 import ForgeLoopAI
 import ForgeLoopAgent
 import ForgeLoopTUI
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 /// 根据模型生成显示标签（纯函数，可测试）
 func labelForModel(_ model: Model) -> String {
@@ -242,8 +247,11 @@ func resolveEscapeIntent(isStreaming: Bool, hasRunningBackgroundTasks: Bool) -> 
 extension KeyEvent {
     /// 默认按键到动作映射；可注入替换以支持自定义快捷键。
     func toAction() -> KeyAction {
-        switch self {
-        case .char(let c):
+        switch key {
+        case .character(let c):
+            if modifiers.contains(.ctrl), c == "c" || c == "C" {
+                return .exit
+            }
             return .insert(c)
         case .backspace:
             return .delete
@@ -253,8 +261,6 @@ extension KeyEvent {
             return .submit
         case .escape:
             return .cancel
-        case .ctrlC:
-            return .exit
         case .up:
             return .historyPrev
         case .down:
@@ -309,7 +315,7 @@ struct InputHistory {
 
 private struct FooterRenderState {
     let inputLines: [String]
-    let frame: [String]
+    let frame: ComposedFrame
     let cursorOffset: Int?
 }
 
@@ -318,27 +324,28 @@ func runCodingTUIInternal(
     model: Model,
     cwd: String
 ) async throws {
-    let runner = TUIRunner()
+    let isInteractiveTTY = isatty(STDOUT_FILENO) == 1 && isatty(STDIN_FILENO) == 1
+    let tui = TUI(isTTY: isInteractiveTTY)
     let renderer = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
     let agent = await makeCodingAgent(CodingAgentConfig(model: model, cwd: cwd))
-    let layoutRenderer = LayoutRenderer()
+    let screenLayoutRenderer = ScreenLayoutRenderer()
     let modelStore = ModelStore()
     let pickerRenderer = ListPickerRenderer()
 
     let disableRenderLoop = ProcessInfo.processInfo.environment["FORGELOOP_TUI_RENDER_LOOP"] == "0"
     let renderLoop: RenderLoop? = disableRenderLoop
         ? nil
-        : RenderLoop(render: { [runner] frame in
-            runner.tui.requestRender(lines: frame)
+        : RenderLoop(render: { [tui] frame in
+            tui.requestRender(lines: frame)
         })
 
-    let outputFrame: @Sendable ([String], Int?, RenderLoop.Priority) -> Void = { [runner, renderLoop] frame, cursorOffset, priority in
-        if let cursorOffset {
-            runner.tui.requestRender(lines: frame, cursorOffset: cursorOffset)
+    let outputFrame: @Sendable (ComposedFrame, RenderLoop.Priority) -> Void = { [tui, renderLoop] frame, priority in
+        if let cursorOffset = frame.cursorOffset {
+            tui.requestRender(lines: frame.committed, cursorOffset: cursorOffset)
         } else if let renderLoop {
-            renderLoop.submit(frame: frame, priority: priority)
+            renderLoop.submit(frame: frame.committed, priority: priority)
         } else {
-            runner.tui.requestRender(lines: frame)
+            tui.requestRender(lines: frame.committed)
         }
     }
     var hasPrintedStaticHeader = false
@@ -378,23 +385,27 @@ func runCodingTUIInternal(
 
     func makeFooterRenderState(
         statusLines: [String],
-        config: LayoutConfig
+        config: ScreenLayoutConfig
     ) -> FooterRenderState {
-        var footerLayout = Layout()
-        footerLayout.queue = queueLines
-        footerLayout.status = (activeFooterNotice?.lines ?? []) + statusLines
-
         if let activeModelPicker {
             let inputLines = pickerRenderer.render(state: activeModelPicker)
-            footerLayout.input = inputLines
-            let frame = layoutRenderer.render(layout: footerLayout, config: config)
+            let screenLayout = ScreenLayout(
+                queue: queueLines,
+                status: (activeFooterNotice?.lines ?? []) + statusLines,
+                input: inputLines
+            )
+            let frame = screenLayoutRenderer.render(layout: screenLayout, config: config)
             return FooterRenderState(inputLines: inputLines, frame: frame, cursorOffset: nil)
         }
 
         let inputRender = inputState.render(prefix: "❯ ", totalWidth: config.terminalWidth)
         let inputLines = makeInputLines(inputLine: inputRender.line, attachmentCount: attachmentStore.count)
-        footerLayout.input = inputLines
-        let frame = layoutRenderer.render(layout: footerLayout, config: config)
+        let screenLayout = ScreenLayout(
+            queue: queueLines,
+            status: (activeFooterNotice?.lines ?? []) + statusLines,
+            input: inputLines
+        )
+        let frame = screenLayoutRenderer.render(layout: screenLayout, config: config, cursorOffset: inputRender.cursorOffset)
         return FooterRenderState(inputLines: inputLines, frame: frame, cursorOffset: inputRender.cursorOffset)
     }
 
@@ -420,11 +431,11 @@ func runCodingTUIInternal(
 
         let size = getTerminalSize()
         if let last = lastTerminalSize, let current = size, last != current {
-            runner.tui.updateTerminalSize(width: current.columns, height: current.rows)
+            tui.updateTerminalSize(width: current.columns, height: current.rows)
         }
         lastTerminalSize = size
 
-        let config = LayoutConfig(
+        let config = ScreenLayoutConfig(
             terminalHeight: size?.rows ?? 24,
             terminalWidth: size?.columns ?? 80
         )
@@ -439,27 +450,28 @@ func runCodingTUIInternal(
             config: config
         )
 
-        guard runner.tui.isTTY else {
-            var fullLayout = Layout()
-            fullLayout.header = headerLines
-            fullLayout.transcript = renderer.transcriptLines
-            fullLayout.pinnedTranscriptRange = renderer.preferredPinnedRange
-            fullLayout.queue = queueLines
-            fullLayout.status = (activeFooterNotice?.lines ?? []) + statusLines
-            fullLayout.input = footerRender.inputLines
-            let frame = layoutRenderer.render(layout: fullLayout, config: config)
-            outputFrame(frame, nil, priority)
+        guard tui.isTTY else {
+            let screenLayout = ScreenLayout(
+                header: headerLines,
+                transcript: renderer.transcriptLines,
+                queue: queueLines,
+                status: (activeFooterNotice?.lines ?? []) + statusLines,
+                input: footerRender.inputLines,
+                pinnedTranscriptRange: renderer.preferredPinnedRange
+            )
+            let frame = screenLayoutRenderer.render(layout: screenLayout, config: config)
+            outputFrame(frame, priority)
             return
         }
 
         if !hasPrintedStaticHeader {
-            runner.tui.appendFrame(lines: headerLines)
+            tui.appendFrame(lines: headerLines)
             hasPrintedStaticHeader = true
         }
 
         if agent.state.isStreaming {
             if !appendModeActive {
-                runner.tui.requestRender(lines: [])
+                tui.requestRender(lines: [])
                 appendModeActive = true
             }
 
@@ -468,7 +480,7 @@ func runCodingTUIInternal(
                 activeRange: renderer.activeStreamingRange
             )
             if !appendedTranscriptLines.isEmpty {
-                runner.tui.appendFrame(lines: appendedTranscriptLines)
+                tui.appendFrame(lines: appendedTranscriptLines)
             }
             return
         }
@@ -479,13 +491,13 @@ func runCodingTUIInternal(
                 activeRange: nil
             )
             if !remainingTranscriptLines.isEmpty {
-                runner.tui.appendFrame(lines: remainingTranscriptLines)
+                tui.appendFrame(lines: remainingTranscriptLines)
             }
-            runner.tui.resetRetainedFrame()
+            tui.resetRetainedFrame()
             appendModeActive = false
         }
 
-        outputFrame(footerRender.frame, footerRender.cursorOffset, priority)
+        outputFrame(footerRender.frame, priority)
     }
 
     let attachmentStore = AttachmentStore()
@@ -521,21 +533,17 @@ func runCodingTUIInternal(
             }
             let size = getTerminalSize()
             if let last = lastTerminalSize, let current = size, last != current {
-                runner.tui.updateTerminalSize(width: current.columns, height: current.rows)
+                tui.updateTerminalSize(width: current.columns, height: current.rows)
             }
             lastTerminalSize = size
 
-            _ = LayoutConfig(
-                terminalHeight: size?.rows ?? 24,
-                terminalWidth: size?.columns ?? 80
-            )
             let headerLines = [
                 Style.header("✻ forgeloop replica"),
                 Style.dimmed("  \(modelLabel)"),
                 Style.dimmed("  \(cwd)"),
                 "",
             ]
-            let config = LayoutConfig(
+            let config = ScreenLayoutConfig(
                 terminalHeight: size?.rows ?? 24,
                 terminalWidth: size?.columns ?? 80
             )
@@ -556,21 +564,25 @@ func runCodingTUIInternal(
                 )
             )
             let footerRender: FooterRenderState = {
-                var footerLayout = Layout()
-                footerLayout.queue = queueLines
-                footerLayout.status = (activeFooterNotice?.lines ?? []) + statusLines
-
                 if let activeModelPicker {
                     let inputLines = pickerRenderer.render(state: activeModelPicker)
-                    footerLayout.input = inputLines
-                    let frame = layoutRenderer.render(layout: footerLayout, config: config)
+                    let screenLayout = ScreenLayout(
+                        queue: queueLines,
+                        status: (activeFooterNotice?.lines ?? []) + statusLines,
+                        input: inputLines
+                    )
+                    let frame = screenLayoutRenderer.render(layout: screenLayout, config: config)
                     return FooterRenderState(inputLines: inputLines, frame: frame, cursorOffset: nil)
                 }
 
                 let inputRender = inputState.render(prefix: "❯ ", totalWidth: config.terminalWidth)
                 let inputLines = makeInputLines(inputLine: inputRender.line, attachmentCount: attachmentStore.count)
-                footerLayout.input = inputLines
-                let frame = layoutRenderer.render(layout: footerLayout, config: config)
+                let screenLayout = ScreenLayout(
+                    queue: queueLines,
+                    status: (activeFooterNotice?.lines ?? []) + statusLines,
+                    input: inputLines
+                )
+                let frame = screenLayoutRenderer.render(layout: screenLayout, config: config, cursorOffset: inputRender.cursorOffset)
                 return FooterRenderState(
                     inputLines: inputLines,
                     frame: frame,
@@ -578,30 +590,28 @@ func runCodingTUIInternal(
                 )
             }()
 
-            guard runner.tui.isTTY else {
-                var fullLayout = Layout()
-                fullLayout.header = headerLines
-                fullLayout.transcript = renderer.transcriptLines
-                fullLayout.pinnedTranscriptRange = renderer.preferredPinnedRange
-                fullLayout.queue = queueLines
-                fullLayout.status = (activeFooterNotice?.lines ?? []) + statusLines
-                fullLayout.input = footerRender.inputLines
-                let frame = layoutRenderer.render(
-                    layout: fullLayout,
-                    config: config
+            guard tui.isTTY else {
+                let screenLayout = ScreenLayout(
+                    header: headerLines,
+                    transcript: renderer.transcriptLines,
+                    queue: queueLines,
+                    status: (activeFooterNotice?.lines ?? []) + statusLines,
+                    input: footerRender.inputLines,
+                    pinnedTranscriptRange: renderer.preferredPinnedRange
                 )
-                outputFrame(frame, nil, eventPriority)
+                let frame = screenLayoutRenderer.render(layout: screenLayout, config: config)
+                outputFrame(frame, eventPriority)
                 return
             }
 
             if !hasPrintedStaticHeader {
-                runner.tui.appendFrame(lines: headerLines)
+                tui.appendFrame(lines: headerLines)
                 hasPrintedStaticHeader = true
             }
 
             if agent.state.isStreaming {
                 if !appendModeActive {
-                    runner.tui.requestRender(lines: [])
+                    tui.requestRender(lines: [])
                     appendModeActive = true
                 }
 
@@ -610,7 +620,7 @@ func runCodingTUIInternal(
                     activeRange: renderer.activeStreamingRange
                 )
                 if !appendedTranscriptLines.isEmpty {
-                    runner.tui.appendFrame(lines: appendedTranscriptLines)
+                    tui.appendFrame(lines: appendedTranscriptLines)
                 }
                 return
             }
@@ -621,19 +631,41 @@ func runCodingTUIInternal(
                     activeRange: nil
                 )
                 if !remainingTranscriptLines.isEmpty {
-                    runner.tui.appendFrame(lines: remainingTranscriptLines)
+                    tui.appendFrame(lines: remainingTranscriptLines)
                 }
-                runner.tui.resetRetainedFrame()
+                tui.resetRetainedFrame()
                 appendModeActive = false
             }
 
-            outputFrame(footerRender.frame, footerRender.cursorOffset, eventPriority)
+            outputFrame(footerRender.frame, eventPriority)
         }
     }
 
     let controller = PromptController(agent: agent, modelStore: modelStore, attachmentStore: attachmentStore)
 
-    let keyEvents = await runner.run()
+    let keyEvents: AsyncStream<KeyEvent>
+    let inputReader: InputReader?
+    if isInteractiveTTY {
+        let (stream, continuation) = AsyncStream.makeStream(of: KeyEvent.self)
+        let reader = InputReader { events in
+            for event in events {
+                continuation.yield(event)
+            }
+        }
+        do {
+            try reader.start()
+            inputReader = reader
+            keyEvents = stream
+        } catch {
+            continuation.finish()
+            inputReader = nil
+            keyEvents = AsyncStream { $0.finish() }
+        }
+    } else {
+        inputReader = nil
+        keyEvents = AsyncStream { $0.finish() }
+    }
+    defer { inputReader?.stop() }
 
     // 后台 queue 监视
     let bgMonitor = Task { @MainActor in
