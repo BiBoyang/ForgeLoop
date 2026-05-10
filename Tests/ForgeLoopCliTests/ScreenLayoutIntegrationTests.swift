@@ -108,4 +108,52 @@ final class ScreenLayoutIntegrationTests: XCTestCase {
             "I",
         ])
     }
+
+    // MARK: - Regression fixtures (must never regress)
+
+    func testCommittedLiveReconstructionOrderIsStable() {
+        // Fixture: committed + live must always reconstruct the same flat order.
+        let layout = ScreenLayout(
+            header: ["H"],
+            transcript: ["T1", "T2"],
+            queue: ["Q"],
+            status: ["S"],
+            input: ["I"]
+        )
+        let config = ScreenLayoutConfig(terminalHeight: 24)
+        let frame = renderer.render(layout: layout, config: config)
+
+        XCTAssertEqual(
+            frame.committed + frame.live,
+            ["H", "T1", "T2", "", "Q", "", "S", "", "I"],
+            "Flat reconstruction order must remain stable across refactorings"
+        )
+    }
+
+    func testLivePresenceAlwaysBlocksCoalescing() {
+        // Fixture: any non-empty live region must prevent coalescing.
+        let frame = ComposedFrame(committed: ["a"], live: ["live"], cursorOffset: nil)
+        XCTAssertFalse(
+            shouldCoalesceWithRenderLoop(frame: frame, priority: .normal),
+            "Live presence must always block coalescing"
+        )
+    }
+
+    func testCursorOffsetPresenceAlwaysBlocksCoalescing() {
+        // Fixture: any cursorOffset must prevent coalescing.
+        let frame = ComposedFrame(committed: ["a"], live: [], cursorOffset: 1)
+        XCTAssertFalse(
+            shouldCoalesceWithRenderLoop(frame: frame, priority: .normal),
+            "cursorOffset presence must always block coalescing"
+        )
+    }
+
+    func testImmediatePriorityAlwaysBlocksCoalescing() {
+        // Fixture: immediate priority must always bypass coalescing.
+        let frame = ComposedFrame(committed: ["a"], live: [], cursorOffset: nil)
+        XCTAssertFalse(
+            shouldCoalesceWithRenderLoop(frame: frame, priority: .immediate),
+            "Immediate priority must always block coalescing regardless of frame content"
+        )
+    }
 }

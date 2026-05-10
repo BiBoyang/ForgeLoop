@@ -411,4 +411,57 @@ final class CodingTUIStatusTests: XCTestCase {
         XCTAssertEqual(frame.live, ["", "[ ] option 1", "[x] option 2"])
         XCTAssertNil(frame.cursorOffset)
     }
+
+    // MARK: - Invariant guards (must never regress)
+
+    func testCoalesceInvariantOnlyNormalCommittedOnlyNilCursor() {
+        // The ONLY configuration that returns true.
+        let trueFrame = ComposedFrame(committed: ["a"], live: [], cursorOffset: nil)
+        XCTAssertTrue(shouldCoalesceWithRenderLoop(frame: trueFrame, priority: .normal))
+
+        // Any deviation must return false.
+        XCTAssertFalse(shouldCoalesceWithRenderLoop(frame: ComposedFrame(committed: ["a"], live: ["l"], cursorOffset: nil), priority: .normal))
+        XCTAssertFalse(shouldCoalesceWithRenderLoop(frame: ComposedFrame(committed: ["a"], live: [], cursorOffset: 1), priority: .normal))
+        XCTAssertFalse(shouldCoalesceWithRenderLoop(frame: ComposedFrame(committed: ["a"], live: [], cursorOffset: nil), priority: .immediate))
+        // Empty committed is still committed-only (live empty + cursor nil + normal)
+        XCTAssertTrue(shouldCoalesceWithRenderLoop(frame: ComposedFrame(committed: [], live: [], cursorOffset: nil), priority: .normal))
+    }
+
+    func testBuilderCursorOffsetPassthroughInvariant() {
+        let inputWithCursor = CodingTUIFrameBuilder.Input(
+            inputLines: ["> "],
+            terminalHeight: 24,
+            terminalWidth: 80,
+            cursorOffset: 7
+        )
+        let frame = CodingTUIFrameBuilder.build(input: inputWithCursor)
+        XCTAssertEqual(frame.cursorOffset, 7)
+    }
+
+    func testPickerPathLiveRegionWithoutCursorOffsetInvariant() {
+        let input = CodingTUIFrameBuilder.Input(
+            queueLines: ["q1"],
+            statusLines: ["S"],
+            inputLines: ["picker"],
+            terminalHeight: 24,
+            terminalWidth: 80
+        )
+        let frame = CodingTUIFrameBuilder.build(input: input)
+        XCTAssertFalse(frame.live.isEmpty, "Picker path must produce a live region")
+        XCTAssertNil(frame.cursorOffset, "Picker path must not set cursorOffset")
+    }
+
+    func testFooterOnlyDividerStabilityInvariant() {
+        let input = CodingTUIFrameBuilder.Input(
+            queueLines: ["q1"],
+            statusLines: ["S"],
+            inputLines: ["> "],
+            terminalHeight: 24,
+            terminalWidth: 80
+        )
+        let frame = CodingTUIFrameBuilder.build(input: input)
+        // Dividers must appear between non-empty regions.
+        XCTAssertEqual(frame.committed, ["", "q1", "", "S"])
+        XCTAssertEqual(frame.live, ["", "> "])
+    }
 }
