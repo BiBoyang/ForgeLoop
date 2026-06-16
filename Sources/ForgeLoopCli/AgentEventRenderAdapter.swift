@@ -38,41 +38,6 @@ func toCoreRenderEvent(_ event: AgentEvent, blockID: String = "__assistant") -> 
     }
 }
 
-// MARK: - Legacy Adapter (Deprecated)
-
-@available(*, deprecated, message: "Use toCoreRenderEvent instead")
-func toRenderEvent(_ event: AgentEvent) -> RenderEvent? {
-    switch event {
-    case .agentStart:
-        return .notification(text: "agent started")
-    case .agentEnd:
-        return .notification(text: "agent ended")
-    case .turnStart:
-        return nil
-    case .turnEnd:
-        return nil
-    case .messageStart(let message):
-        return .messageStart(message: toRenderMessage(message))
-    case .messageUpdate(let assistant, _):
-        let (text, thinking) = extractAssistantContent(assistant)
-        return .messageUpdate(
-            message: .assistant(
-                text: text,
-                thinking: thinking,
-                errorMessage: assistant.errorMessage
-            )
-        )
-    case .messageEnd(let message):
-        return .messageEnd(message: toRenderMessage(message))
-    case .toolExecutionStart(let toolCallId, let toolName, let args):
-        return .toolExecutionStart(toolCallId: toolCallId, toolName: toolName, args: args)
-    case .toolExecutionEnd(let toolCallId, let toolName, let isError, let summary):
-        return .toolExecutionEnd(toolCallId: toolCallId, toolName: toolName, isError: isError, summary: summary)
-    case .contextCompacted:
-        return nil
-    }
-}
-
 // MARK: - Private Helpers
 
 private func adaptMessageStart(_ message: Message, blockID: String) -> CoreRenderEvent? {
@@ -122,35 +87,6 @@ private func adaptMessageEnd(_ message: Message, blockID: String) -> [CoreRender
     case .tool:
         return []
     }
-}
-
-@available(*, deprecated)
-private func toRenderMessage(_ message: Message) -> RenderMessage {
-    switch message {
-    case .user(let user):
-        return .user(user.text)
-    case .assistant(let assistant):
-        let (text, thinking) = extractAssistantContent(assistant)
-        return .assistant(text: text, thinking: thinking, errorMessage: assistant.errorMessage)
-    case .tool(let tool):
-        return .tool(toolCallId: tool.toolCallId, output: tool.output, isError: tool.isError)
-    }
-}
-
-private func formatAssistantLines(text: String, thinking: String?) -> [String] {
-    var result: [String] = []
-
-    if let thinking = thinking, !thinking.isEmpty {
-        let firstLine = thinking.split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? thinking
-        let prefix = thinking.contains("\n") ? "💭 \(firstLine) …" : "💭 \(firstLine)"
-        result.append(Style.dimmed(prefix))
-    }
-
-    if !text.isEmpty {
-        result.append(contentsOf: text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init))
-    }
-
-    return result
 }
 
 /// 提取 assistant content：

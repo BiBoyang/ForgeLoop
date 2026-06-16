@@ -77,6 +77,7 @@ struct PromptController {
     let agent: Agent
     var modelStore: ModelStore?
     let attachmentStore: AttachmentStore
+    let sessionStore: SessionStore
     let slashCommandRegistry: SlashCommandRegistry
 
     enum SubmitResult: Equatable {
@@ -90,11 +91,13 @@ struct PromptController {
         agent: Agent,
         modelStore: ModelStore? = nil,
         attachmentStore: AttachmentStore = AttachmentStore(),
+        sessionStore: SessionStore = SessionStore(),
         slashCommandRegistry: SlashCommandRegistry = makeDefaultSlashCommandRegistry()
     ) {
         self.agent = agent
         self.modelStore = modelStore
         self.attachmentStore = attachmentStore
+        self.sessionStore = sessionStore
         self.slashCommandRegistry = slashCommandRegistry
     }
 
@@ -123,7 +126,12 @@ struct PromptController {
     private func handleSlashCommand(_ text: String) async -> SubmitResult {
         slashCommandRegistry.execute(
             text,
-            context: SlashCommandContext(agent: agent, modelStore: modelStore, attachmentStore: attachmentStore)
+            context: SlashCommandContext(
+                agent: agent,
+                modelStore: modelStore,
+                attachmentStore: attachmentStore,
+                sessionStore: sessionStore
+            )
         )
     }
 }

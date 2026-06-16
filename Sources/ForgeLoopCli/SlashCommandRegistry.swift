@@ -8,6 +8,19 @@ struct SlashCommandContext {
     let agent: Agent
     let modelStore: ModelStore?
     let attachmentStore: AttachmentStore
+    let sessionStore: SessionStore
+
+    init(
+        agent: Agent,
+        modelStore: ModelStore? = nil,
+        attachmentStore: AttachmentStore,
+        sessionStore: SessionStore = SessionStore()
+    ) {
+        self.agent = agent
+        self.modelStore = modelStore
+        self.attachmentStore = attachmentStore
+        self.sessionStore = sessionStore
+    }
 }
 
 @MainActor
@@ -244,6 +257,85 @@ func makeDefaultSlashCommandRegistry() -> SlashCommandRegistry {
                     return .feedback("Removed attachment #\(index)")
                 } else {
                     return .feedback("No attachment at index \(index)")
+                }
+            },
+            SlashCommand(
+                names: ["/save"],
+                usage: "/save [name]",
+                summary: "Save current session"
+            ) { argument, context in
+                if context.agent.state.isStreaming {
+                    return .feedback("Cannot save while streaming")
+                }
+
+                let trimmed = argument?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let name = trimmed.isEmpty ? "last" : trimmed
+
+                do {
+                    try context.sessionStore.save(
+                        name: name,
+                        modelID: context.agent.state.model.id,
+                        messages: context.agent.state.messages
+                    )
+                    let count = context.agent.state.messages.count
+                    return .feedback("Saved session: \(name) (\(count) messages)")
+                } catch {
+                    return .feedback("Failed to save session: \(error)")
+                }
+            },
+            SlashCommand(
+                names: ["/load"],
+                usage: "/load <name>",
+                summary: "Load a saved session"
+            ) { argument, context in
+                if context.agent.state.isStreaming {
+                    return .feedback("Cannot load while streaming")
+                }
+
+                let trimmed = argument?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                guard !trimmed.isEmpty else {
+                    return .feedback("Usage: /load <name>")
+                }
+
+                do {
+                    guard let record = try context.sessionStore.load(name: trimmed) else {
+                        return .feedback("Session not found: \(trimmed)")
+                    }
+
+                    context.agent.state.messages = record.messages
+                    if record.modelID != context.agent.state.model.id {
+                        context.agent.state.model = switchedModel(
+                            from: context.agent.state.model,
+                            to: record.modelID
+                        )
+                        context.modelStore?.save(context.agent.state.model)
+                    }
+
+                    return .feedback("Loaded session: \(trimmed) (\(record.messages.count) messages)")
+                } catch {
+                    return .feedback("Failed to load session: \(error)")
+                }
+            },
+            SlashCommand(
+                names: ["/sessions"],
+                usage: "/sessions",
+                summary: "List saved sessions"
+            ) { _, context in
+                do {
+                    let names = try context.sessionStore.list()
+                    if names.isEmpty {
+                        return .feedback("No saved sessions")
+                    }
+
+                    let lines = names.map { name -> String in
+                        if let record = try? context.sessionStore.load(name: name) {
+                            return "  \(name) (\(record.messages.count) messages)"
+                        }
+                        return "  \(name)"
+                    }
+                    return .feedback("Saved sessions:\n" + lines.joined(separator: "\n"))
+                } catch {
+                    return .feedback("Failed to list sessions: \(error)")
                 }
             },
             SlashCommand(

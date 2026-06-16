@@ -256,62 +256,40 @@ func resolveEscapeIntent(isStreaming: Bool, hasRunningBackgroundTasks: Bool) -> 
     return .clearInput
 }
 
-extension KeyEvent {
-    /// 默认按键到动作映射；可注入替换以支持自定义快捷键。
-    func toAction() -> KeyAction {
-        switch key {
-        case .character(let c):
-            if modifiers.contains(.ctrl) {
-                switch c {
-                case "c", "C":
-                    return .exit
-                case "a", "A":
-                    return .moveToLineStart
-                case "e", "E":
-                    return .moveToLineEnd
-                case "u", "U":
-                    return .killToLineStart
-                case "k", "K":
-                    return .killToLineEnd
-                case "p", "P":
-                    return .historyPrev
-                case "n", "N":
-                    return .historyNext
-                case "o", "O":
-                    return .insertNewline
-                case "j", "J":
-                    return .submit
-                default:
-                    break
-                }
-            }
-            return .insert(c)
-        case .backspace:
-            return .delete
-        case .delete:
-            return .deleteForward
-        case .enter:
-            return .insertNewline
-        case .escape:
-            return .cancel
-        case .up:
-            return .moveUp
-        case .down:
-            return .moveDown
-        case .left:
-            return .moveLeft
-        case .right:
-            return .moveRight
-        case .home:
-            return .moveToLineStart
-        case .end:
-            return .moveToLineEnd
-        case .paste(let text):
-            return .paste(text)
-        default:
-            return .ignore
+func makeKeybindings() -> KeybindingRegistry<KeyAction> {
+    var registry = KeybindingRegistry<KeyAction>()
+    func bind(_ sequence: KeySequence, _ action: KeyAction) {
+        do {
+            try registry.register(sequence, action: action)
+        } catch {
+            assertionFailure("keybinding registration failed: \(error)")
         }
     }
+
+    bind(KeySequence(KeyStroke(key: .enter)), .insertNewline)
+    bind(KeySequence(KeyStroke(key: .backspace)), .delete)
+    bind(KeySequence(KeyStroke(key: .delete)), .deleteForward)
+    bind(KeySequence(KeyStroke(key: .left)), .moveLeft)
+    bind(KeySequence(KeyStroke(key: .right)), .moveRight)
+    bind(KeySequence(KeyStroke(key: .up)), .moveUp)
+    bind(KeySequence(KeyStroke(key: .down)), .moveDown)
+    bind(KeySequence(KeyStroke(key: .home)), .moveToLineStart)
+    bind(KeySequence(KeyStroke(key: .end)), .moveToLineEnd)
+    bind(KeySequence(KeyStroke(key: .escape)), .cancel)
+
+    // readline-style control-letter bindings (KeyParser emits uppercase letters
+    // for Ctrl- combos, so register the uppercase form).
+    bind(KeySequence(KeyStroke(key: .character("A"), modifiers: .ctrl)), .moveToLineStart)
+    bind(KeySequence(KeyStroke(key: .character("E"), modifiers: .ctrl)), .moveToLineEnd)
+    bind(KeySequence(KeyStroke(key: .character("U"), modifiers: .ctrl)), .killToLineStart)
+    bind(KeySequence(KeyStroke(key: .character("K"), modifiers: .ctrl)), .killToLineEnd)
+    bind(KeySequence(KeyStroke(key: .character("P"), modifiers: .ctrl)), .historyPrev)
+    bind(KeySequence(KeyStroke(key: .character("N"), modifiers: .ctrl)), .historyNext)
+    bind(KeySequence(KeyStroke(key: .character("O"), modifiers: .ctrl)), .insertNewline)
+    bind(KeySequence(KeyStroke(key: .character("J"), modifiers: .ctrl)), .submit)
+    bind(KeySequence(KeyStroke(key: .character("C"), modifiers: .ctrl)), .exit)
+
+    return registry
 }
 
 
@@ -343,7 +321,25 @@ func runCodingTUIInternal(
     let renderer = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
     let agent = await makeCodingAgent(CodingAgentConfig(model: model, cwd: cwd))
     let modelStore = ModelStore()
+    let sessionStore = SessionStore()
     let pickerRenderer = ListPickerRenderer()
+
+    // Auto-restore last session if it exists
+    if let lastSession = try? sessionStore.load(name: "last"), !lastSession.messages.isEmpty {
+        agent.state.messages = lastSession.messages
+        if lastSession.modelID != agent.state.model.id {
+            agent.state.model = switchedModel(from: agent.state.model, to: lastSession.modelID)
+            modelStore.save(agent.state.model)
+        }
+    }
+
+    func saveLastSession() {
+        let msgs = agent.state.messages
+        if !msgs.isEmpty {
+            try? sessionStore.save(name: "last", modelID: agent.state.model.id, messages: msgs)
+        }
+    }
+    let keyResolver = KeyResolver(registry: makeKeybindings())
 
     let disableRenderLoop = ProcessInfo.processInfo.environment["FORGELOOP_TUI_RENDER_LOOP"] == "0"
     let renderLoop: RenderLoop? = disableRenderLoop
@@ -572,7 +568,7 @@ func runCodingTUIInternal(
         }
     }
 
-    let controller = PromptController(agent: agent, modelStore: modelStore, attachmentStore: attachmentStore)
+    let controller = PromptController(agent: agent, modelStore: modelStore, attachmentStore: attachmentStore, sessionStore: sessionStore)
 
     let keyEvents: AsyncStream<KeyEvent>
     let inputReader: InputReader?
@@ -624,255 +620,306 @@ func runCodingTUIInternal(
             renderFrame(priority: .immediate)
             return true
         case .exit:
+            saveLastSession()
             bgMonitor.cancel()
             if let renderLoop { renderLoop.stop() }
             return false
         }
     }
 
-    // 首帧渲染
-    renderFrame(priority: .immediate)
-
-    for await event in keyEvents {
-        let action = event.toAction()
-
-        if var modelPicker = activeModelPicker {
-            switch action {
-            case .historyPrev, .moveUp:
-                _ = modelPicker.handle(.moveUp)
-                activeModelPicker = modelPicker
-                renderFrame(priority: .immediate)
-                continue
-            case .historyNext, .moveDown:
-                _ = modelPicker.handle(.moveDown)
-                activeModelPicker = modelPicker
-                renderFrame(priority: .immediate)
-                continue
-            case .submit, .insertNewline:
-                let outcome = modelPicker.handle(.confirm)
-                activeModelPicker = nil
-                if case .confirmed(let item) = outcome {
-                    do {
-                        let result = try await controller.submit("/model \(item.id)")
-                        if !handleSubmitResult(result) {
-                            return
+    func handleResolvedKey(_ resolved: ResolvedKey<KeyAction>) async -> Bool {
+        switch resolved {
+        case .action(let keyAction):
+            if var modelPicker = activeModelPicker {
+                switch keyAction {
+                case .historyPrev, .moveUp:
+                    _ = modelPicker.handle(.moveUp)
+                    activeModelPicker = modelPicker
+                    renderFrame(priority: .immediate)
+                    return true
+                case .historyNext, .moveDown:
+                    _ = modelPicker.handle(.moveDown)
+                    activeModelPicker = modelPicker
+                    renderFrame(priority: .immediate)
+                    return true
+                case .submit, .insertNewline:
+                    let outcome = modelPicker.handle(.confirm)
+                    activeModelPicker = nil
+                    if case .confirmed(let item) = outcome {
+                        do {
+                            let result = try await controller.submit("/model \(item.id)")
+                            return handleSubmitResult(result)
+                        } catch {
+                            renderer.applyCore(.notification(text: "[error] \(error)"))
+                            renderFrame(priority: .immediate)
+                            return true
                         }
-                    } catch {
-                        renderer.applyCore(.notification(text: "[error] \(error)"))
+                    } else {
                         renderFrame(priority: .immediate)
+                        return true
                     }
+                case .cancel:
+                    _ = modelPicker.handle(.cancel)
+                    activeModelPicker = nil
+                    renderFrame(priority: .immediate)
+                    return true
+                case .exit:
+                    saveLastSession()
+                    bgMonitor.cancel()
+                    if let renderLoop { renderLoop.stop() }
+                    return false
+                default:
+                    return true
+                }
+            }
+
+            switch keyAction {
+            case .insert(let c):
+                activeFooterNotice = nil
+                didCompactRecently = false
+                inputState.handle(.insert(c))
+                renderFrame(priority: .immediate)
+                return true
+
+            case .delete:
+                activeFooterNotice = nil
+                didCompactRecently = false
+                inputState.handle(.backspace)
+                renderFrame(priority: .immediate)
+                return true
+
+            case .deleteForward:
+                activeFooterNotice = nil
+                didCompactRecently = false
+                inputState.handle(.deleteForward)
+                renderFrame(priority: .immediate)
+                return true
+
+            case .submit, .insertNewline:
+                if keyAction == .insertNewline && !agent.state.isStreaming {
+                    inputState.handle(.insertNewline)
+                    renderFrame(priority: .immediate)
+                    return true
+                }
+
+                let submittedText = inputState.text
+                let trimmed = submittedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let hasAttachments = !attachmentStore.isEmpty
+                inputHistory.commit(submittedText)
+                inputState.handle(.clear)
+                renderFrame(priority: .immediate)
+
+                if !trimmed.isEmpty || hasAttachments {
+                    do {
+                        let result = try await controller.submit(trimmed)
+                        return handleSubmitResult(result)
+                    } catch {
+                        activeFooterNotice = FooterNotice(text: "[error] \(error)", priority: .error)
+                        renderFrame(priority: .immediate)
+                        return true
+                    }
+                }
+                return true
+
+            case .cancel:
+                let hasRunningBackgroundTasks: Bool
+                if let bgManager = agent.backgroundTaskManager {
+                    let tasks = await bgManager.status()
+                    hasRunningBackgroundTasks = tasks.contains { $0.status == .running }
                 } else {
+                    hasRunningBackgroundTasks = false
+                }
+
+                let intent = resolveEscapeIntent(
+                    isStreaming: agent.state.isStreaming,
+                    hasRunningBackgroundTasks: hasRunningBackgroundTasks
+                )
+
+                switch intent {
+                case .abortStreaming:
+                    isAbortRequested = true
+                    activeFooterNotice = nil
+                    didCompactRecently = false
+                    agent.abort()
+                    if let blockID = currentAssistantBlockID {
+                        renderer.applyCore(.blockCancel(id: blockID))
+                        currentAssistantBlockID = nil
+                    }
+                    inputState.handle(.clear)
+                    inputHistory.reset()
+                    renderFrame(priority: .immediate)
+
+                case .killBackgroundTasks:
+                    isAbortRequested = false
+                    didCompactRecently = false
+                    if let bgManager = agent.backgroundTaskManager {
+                        let cancelledCount = await bgManager.cancelAll(by: "user")
+                        if cancelledCount > 0 {
+                            activeFooterNotice = FooterNotice(
+                                text: "cancelled \(cancelledCount) background task\(cancelledCount == 1 ? "" : "s")",
+                                priority: .command
+                            )
+                        }
+                        await refreshQueueLines()
+                    }
+                    inputState.handle(.clear)
+                    inputHistory.reset()
+                    renderFrame(priority: .immediate)
+
+                case .clearInput:
+                    isAbortRequested = false
+                    activeFooterNotice = nil
+                    didCompactRecently = false
+                    inputState.handle(.clear)
+                    inputHistory.reset()
                     renderFrame(priority: .immediate)
                 }
-                continue
-            case .cancel:
-                _ = modelPicker.handle(.cancel)
-                activeModelPicker = nil
-                renderFrame(priority: .immediate)
-                continue
+                return true
+
             case .exit:
+                saveLastSession()
                 bgMonitor.cancel()
                 if let renderLoop { renderLoop.stop() }
-                return
-            default:
-                continue
-            }
-        }
+                return false
 
-        switch action {
-        case .insert(let c):
-            activeFooterNotice = nil
-            didCompactRecently = false
-            inputState.handle(.insert(c))
-            renderFrame(priority: .immediate)
-
-        case .delete:
-            activeFooterNotice = nil
-            didCompactRecently = false
-            inputState.handle(.backspace)
-            renderFrame(priority: .immediate)
-
-        case .deleteForward:
-            activeFooterNotice = nil
-            didCompactRecently = false
-            inputState.handle(.deleteForward)
-            renderFrame(priority: .immediate)
-
-        case .submit, .insertNewline:
-            if action == .insertNewline && !agent.state.isStreaming {
-                inputState.handle(.insertNewline)
-                renderFrame(priority: .immediate)
-                break
-            }
-
-            let submittedText = inputState.text
-            let trimmed = submittedText.trimmingCharacters(in: .whitespacesAndNewlines)
-            let hasAttachments = !attachmentStore.isEmpty
-            inputHistory.commit(submittedText)
-            inputState.handle(.clear)
-            renderFrame(priority: .immediate)
-
-            if !trimmed.isEmpty || hasAttachments {
-                do {
-                    let result = try await controller.submit(trimmed)
-                    if !handleSubmitResult(result) {
-                        return
-                    }
-                } catch {
-                    activeFooterNotice = FooterNotice(text: "[error] \(error)", priority: .error)
+            case .historyPrev:
+                activeFooterNotice = nil
+                didCompactRecently = false
+                if let text = inputHistory.prev() {
+                    inputState.handle(.replace(text))
                     renderFrame(priority: .immediate)
                 }
-            }
+                return true
 
-        case .cancel:
-            let hasRunningBackgroundTasks: Bool
-            if let bgManager = agent.backgroundTaskManager {
-                let tasks = await bgManager.status()
-                hasRunningBackgroundTasks = tasks.contains { $0.status == .running }
-            } else {
-                hasRunningBackgroundTasks = false
-            }
-
-            let intent = resolveEscapeIntent(
-                isStreaming: agent.state.isStreaming,
-                hasRunningBackgroundTasks: hasRunningBackgroundTasks
-            )
-
-            switch intent {
-            case .abortStreaming:
-                isAbortRequested = true
+            case .historyNext:
                 activeFooterNotice = nil
                 didCompactRecently = false
-                agent.abort()
-                if let blockID = currentAssistantBlockID {
-                    renderer.applyCore(.blockCancel(id: blockID))
-                    currentAssistantBlockID = nil
+                if let text = inputHistory.next() {
+                    inputState.handle(.replace(text))
+                    renderFrame(priority: .immediate)
+                } else if inputHistory.isAtCurrent {
+                    inputState.handle(.clear)
+                    renderFrame(priority: .immediate)
                 }
-                inputState.handle(.clear)
-                inputHistory.reset()
-                renderFrame(priority: .immediate)
+                return true
 
-            case .killBackgroundTasks:
-                isAbortRequested = false
-                didCompactRecently = false
-                if let bgManager = agent.backgroundTaskManager {
-                    let cancelledCount = await bgManager.cancelAll(by: "user")
-                    if cancelledCount > 0 {
-                        activeFooterNotice = FooterNotice(
-                            text: "cancelled \(cancelledCount) background task\(cancelledCount == 1 ? "" : "s")",
-                            priority: .command
-                        )
-                    }
-                    await refreshQueueLines()
-                }
-                inputState.handle(.clear)
-                inputHistory.reset()
-                renderFrame(priority: .immediate)
-
-            case .clearInput:
-                isAbortRequested = false
+            case .moveLeft:
                 activeFooterNotice = nil
                 didCompactRecently = false
-                inputState.handle(.clear)
-                inputHistory.reset()
+                inputState.handle(.moveLeft)
                 renderFrame(priority: .immediate)
+                return true
+
+            case .moveRight:
+                activeFooterNotice = nil
+                didCompactRecently = false
+                inputState.handle(.moveRight)
+                renderFrame(priority: .immediate)
+                return true
+
+            case .moveUp:
+                activeFooterNotice = nil
+                didCompactRecently = false
+                inputState.handle(.moveUp)
+                renderFrame(priority: .immediate)
+                return true
+
+            case .moveDown:
+                activeFooterNotice = nil
+                didCompactRecently = false
+                inputState.handle(.moveDown)
+                renderFrame(priority: .immediate)
+                return true
+
+            case .moveToLineStart:
+                activeFooterNotice = nil
+                didCompactRecently = false
+                inputState.handle(.moveToLineStart)
+                renderFrame(priority: .immediate)
+                return true
+
+            case .moveToLineEnd:
+                activeFooterNotice = nil
+                didCompactRecently = false
+                inputState.handle(.moveToLineEnd)
+                renderFrame(priority: .immediate)
+                return true
+
+            case .moveToBufferStart:
+                activeFooterNotice = nil
+                didCompactRecently = false
+                inputState.handle(.moveToBufferStart)
+                renderFrame(priority: .immediate)
+                return true
+
+            case .moveToBufferEnd:
+                activeFooterNotice = nil
+                didCompactRecently = false
+                inputState.handle(.moveToBufferEnd)
+                renderFrame(priority: .immediate)
+                return true
+
+            case .killToLineStart:
+                activeFooterNotice = nil
+                didCompactRecently = false
+                inputState.handle(.killToLineStart)
+                renderFrame(priority: .immediate)
+                return true
+
+            case .killToLineEnd:
+                activeFooterNotice = nil
+                didCompactRecently = false
+                inputState.handle(.killToLineEnd)
+                renderFrame(priority: .immediate)
+                return true
+
+            case .paste(let text):
+                activeFooterNotice = nil
+                didCompactRecently = false
+                inputState.handle(.insertText(text))
+                renderFrame(priority: .immediate)
+                return true
+
+            case .ignore:
+                return true
             }
 
-        case .exit:
-            bgMonitor.cancel()
-            if let renderLoop { renderLoop.stop() }
-            return
-
-        case .historyPrev:
-            activeFooterNotice = nil
-            didCompactRecently = false
-            if let text = inputHistory.prev() {
-                inputState.handle(.replace(text))
+        case .passthrough(let event):
+            switch event.key {
+            case .character(let c) where !event.modifiers.contains(.ctrl):
+                activeFooterNotice = nil
+                didCompactRecently = false
+                inputState.handle(.insert(c))
                 renderFrame(priority: .immediate)
+            case .paste(let text):
+                activeFooterNotice = nil
+                didCompactRecently = false
+                inputState.handle(.insertText(text))
+                renderFrame(priority: .immediate)
+            default:
+                break
             }
-
-        case .historyNext:
-            activeFooterNotice = nil
-            didCompactRecently = false
-            if let text = inputHistory.next() {
-                inputState.handle(.replace(text))
-                renderFrame(priority: .immediate)
-            } else if inputHistory.isAtCurrent {
-                inputState.handle(.clear)
-                renderFrame(priority: .immediate)
-            }
-
-        case .moveLeft:
-            activeFooterNotice = nil
-            didCompactRecently = false
-            inputState.handle(.moveLeft)
-            renderFrame(priority: .immediate)
-
-        case .moveRight:
-            activeFooterNotice = nil
-            didCompactRecently = false
-            inputState.handle(.moveRight)
-            renderFrame(priority: .immediate)
-
-        case .moveUp:
-            activeFooterNotice = nil
-            didCompactRecently = false
-            inputState.handle(.moveUp)
-            renderFrame(priority: .immediate)
-
-        case .moveDown:
-            activeFooterNotice = nil
-            didCompactRecently = false
-            inputState.handle(.moveDown)
-            renderFrame(priority: .immediate)
-
-        case .moveToLineStart:
-            activeFooterNotice = nil
-            didCompactRecently = false
-            inputState.handle(.moveToLineStart)
-            renderFrame(priority: .immediate)
-
-        case .moveToLineEnd:
-            activeFooterNotice = nil
-            didCompactRecently = false
-            inputState.handle(.moveToLineEnd)
-            renderFrame(priority: .immediate)
-
-        case .moveToBufferStart:
-            activeFooterNotice = nil
-            didCompactRecently = false
-            inputState.handle(.moveToBufferStart)
-            renderFrame(priority: .immediate)
-
-        case .moveToBufferEnd:
-            activeFooterNotice = nil
-            didCompactRecently = false
-            inputState.handle(.moveToBufferEnd)
-            renderFrame(priority: .immediate)
-
-        case .killToLineStart:
-            activeFooterNotice = nil
-            didCompactRecently = false
-            inputState.handle(.killToLineStart)
-            renderFrame(priority: .immediate)
-
-        case .killToLineEnd:
-            activeFooterNotice = nil
-            didCompactRecently = false
-            inputState.handle(.killToLineEnd)
-            renderFrame(priority: .immediate)
-
-        case .paste(let text):
-            activeFooterNotice = nil
-            didCompactRecently = false
-            inputState.handle(.insertText(text))
-            renderFrame(priority: .immediate)
-
-        case .ignore:
-            break
+            return true
         }
     }
 
+    // 首帧渲染
+    renderFrame(priority: .immediate)
+
+    eventLoop: for await event in keyEvents {
+        for resolved in keyResolver.feed(event) {
+            if !(await handleResolvedKey(resolved)) {
+                break eventLoop
+            }
+        }
+        for resolved in keyResolver.tick() {
+            if !(await handleResolvedKey(resolved)) {
+                break eventLoop
+            }
+        }
+    }
+
+    saveLastSession()
     bgMonitor.cancel()
     if let renderLoop { renderLoop.stop() }
 }

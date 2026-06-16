@@ -25,6 +25,9 @@ final class SlashCommandsTests: XCTestCase {
         if case .feedback(let text) = result {
             XCTAssertTrue(text.contains("/model"), "help should mention /model")
             XCTAssertTrue(text.contains("/compact"), "help should mention /compact")
+            XCTAssertTrue(text.contains("/save"), "help should mention /save")
+            XCTAssertTrue(text.contains("/load"), "help should mention /load")
+            XCTAssertTrue(text.contains("/sessions"), "help should mention /sessions")
             XCTAssertTrue(text.contains("/help"), "help should mention /help")
             XCTAssertTrue(text.contains("/exit"), "help should mention /exit")
             XCTAssertTrue(text.contains("/quit"), "help should mention /quit")
@@ -187,6 +190,9 @@ final class SlashCommandsTests: XCTestCase {
             XCTAssertTrue(text.contains("Unknown command"))
             XCTAssertTrue(text.contains("/model"))
             XCTAssertTrue(text.contains("/compact"))
+            XCTAssertTrue(text.contains("/save"))
+            XCTAssertTrue(text.contains("/load"))
+            XCTAssertTrue(text.contains("/sessions"))
         } else {
             XCTFail("Expected feedback result")
         }
