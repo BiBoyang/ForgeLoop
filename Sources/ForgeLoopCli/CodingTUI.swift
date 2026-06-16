@@ -237,6 +237,8 @@ public enum KeyAction: Sendable, Equatable {
     case killToLineStart
     case killToLineEnd
     case paste(String)
+    case newTab
+    case closeTab
     case ignore
 }
 
@@ -288,6 +290,8 @@ public func makeKeybindings() -> KeybindingRegistry<KeyAction> {
     bind(KeySequence(KeyStroke(key: .character("O"), modifiers: .ctrl)), .insertNewline)
     bind(KeySequence(KeyStroke(key: .character("J"), modifiers: .ctrl)), .submit)
     bind(KeySequence(KeyStroke(key: .character("C"), modifiers: .ctrl)), .exit)
+    bind(KeySequence(KeyStroke(key: .character("T"), modifiers: .command)), .newTab)
+    bind(KeySequence(KeyStroke(key: .character("W"), modifiers: .command)), .closeTab)
 
     return registry
 }
@@ -878,6 +882,10 @@ func runCodingTUIInternal(
                 didCompactRecently = false
                 inputState.handle(.insertText(text))
                 renderFrame(priority: .immediate)
+                return true
+
+            case .newTab, .closeTab:
+                // Tab management is AppKit-only; TUI operates on a single session.
                 return true
 
             case .ignore:

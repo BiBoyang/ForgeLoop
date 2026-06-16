@@ -79,7 +79,7 @@ final class TUIRenderStrategyTests: XCTestCase {
 
         tui.requestRender(lines: [])
 
-        XCTAssertEqual(spy.last, "")
+        XCTAssertNil(spy.last)
     }
 
     // MARK: - 3) Inline 增量路径（无绝对定位）

@@ -6,7 +6,7 @@ import ForgeLoopCli
 import ForgeLoopTUI
 
 @MainActor
-final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextViewDelegate {
     private let eventAdapter = AppKitEventAdapter()
     private let keyResolver = KeyResolver<KeyAction>(registry: makeKeybindings())
     private let sessionStore = SessionStore()
@@ -22,24 +22,22 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private var modelPicker: NSPopUpButton?
     private var modelPickerIDs: [String] = []
+    private var tabSelector: NSSegmentedControl?
 
     private let slashRegistry = makeDefaultSlashCommandRegistry()
-    private var footerNotice: String? = nil
-    private var bgTaskLines: [String] = []
     private var bgTaskLabel: NSTextField?
 
-    private var inputState = MultiLineInputState(viewport: Viewport(width: 60))
-    private var transcript: TranscriptRenderer!
-    private var agent: Agent?
-    private var currentBlockID: String?
-
-    private var messageSegments: [MessageSegment] = []
+    private var tabs: [TabSession] = []
+    private var activeTabIndex: Int = 0
+    private var activeTab: TabSession {
+        tabs[activeTabIndex]
+    }
 
     private let cwd = FileManager.default.currentDirectoryPath
 
     // MARK: - Message Segment Types
 
-    enum MessageSegmentType {
+    enum MessageSegmentType: Equatable {
         case user
         case assistant
         case toolHeader
@@ -47,6 +45,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case thinking
         case error
         case notification
+        case codeBlock
     }
 
     struct MessageSegment {
@@ -62,43 +61,27 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         Task {
             do {
                 let resolved = try await resolveAgentAuth()
-                let agent = await makeCodingAgent(CodingAgentConfig(model: resolved.model, cwd: cwd))
-                self.agent = agent
-                self.transcript = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
 
-                // Auto-restore last session if it exists.
-                if let last = try? sessionStore.load(name: "last"), !last.messages.isEmpty {
-                    agent.state.messages = last.messages
-                    if last.modelID != agent.state.model.id {
-                        agent.state.model = switchedModel(from: agent.state.model, to: last.modelID)
-                    }
+                // Restore tabs from tab-meta.json if present; otherwise create a single tab.
+                await restoreTabs(resolved: resolved)
+
+                if tabs.isEmpty {
+                    let agent = await makeCodingAgent(CodingAgentConfig(model: resolved.model, cwd: cwd))
+                    let transcript = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
+                    let tab = TabSession(id: UUID().uuidString, agent: agent, transcript: transcript)
+                    tabs = [tab]
+                    activeTabIndex = 0
+                    setupSubscriptions(for: tab)
                 }
 
                 self.populateModelPicker()
 
-                _ = agent.subscribe { @MainActor [weak self] event, _ in
-                    guard let self else { return }
-                    switch event {
-                    case .messageStart(message: .assistant):
-                        self.currentBlockID = UUID().uuidString
-                    case .messageEnd(message: .assistant):
-                        self.currentBlockID = nil
-                    default:
-                        break
-                    }
-                    let blockID = self.currentBlockID ?? "__assistant"
-                    for coreEvent in toCoreRenderEvent(event, blockID: blockID) {
-                        self.transcript.applyCore(coreEvent)
-                    }
-                    self.render()
-                }
-
                 Task { @MainActor [weak self] in
                     while true {
                         try? await Task.sleep(for: .seconds(2))
-                        guard let self, let manager = self.agent?.backgroundTaskManager else { continue }
+                        guard let self, let manager = self.activeTab.agent.backgroundTaskManager else { continue }
                         let tasks = await manager.status()
-                        self.bgTaskLines = tasks.map { record in
+                        self.activeTab.bgTaskLines = tasks.map { record in
                             let symbol: String
                             switch record.status {
                             case .running: symbol = "◉"
@@ -129,10 +112,24 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        let msgs = agent?.state.messages ?? []
-        if !msgs.isEmpty {
-            try? sessionStore.save(name: "last", modelID: agent?.state.model.id ?? "", messages: msgs)
+        if let window {
+            UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: "ForgeLoopWindowFrame")
         }
+
+        for tab in tabs {
+            let msgs = tab.agent.state.messages
+            if !msgs.isEmpty {
+                try? sessionStore.save(name: "tab-\(tab.id)", modelID: tab.agent.state.model.id, messages: msgs)
+            }
+        }
+
+        let tabIDs = tabs.map(\.id)
+        let meta = TabMeta(tabIDs: tabIDs, activeIndex: activeTabIndex)
+        if let metaData = try? JSONEncoder().encode(meta) {
+            let metaURL = sessionStore.sessionsDirectory().appendingPathComponent("tab-meta.json")
+            try? metaData.write(to: metaURL)
+        }
+
         NSApp.terminate(nil)
     }
 
@@ -141,18 +138,133 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         render()
     }
 
+    func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSTextView.insertTab(_:)) {
+            activeTab.inputState.handle(.insertText("    "))
+            render()
+            return true
+        }
+        return false
+    }
+
+    // MARK: - Tabs
+
+    private func setupSubscriptions(for tab: TabSession) {
+        _ = tab.agent.subscribe { @MainActor [weak self, weak tab] event, _ in
+            guard let self, let tab else { return }
+            switch event {
+            case .messageStart(message: .assistant):
+                tab.currentBlockID = UUID().uuidString
+            case .messageEnd(message: .assistant):
+                tab.currentBlockID = nil
+            default:
+                break
+            }
+            let blockID = tab.currentBlockID ?? "__assistant"
+            for coreEvent in toCoreRenderEvent(event, blockID: blockID) {
+                tab.transcript.applyCore(coreEvent)
+            }
+            self.render()
+        }
+    }
+
+    private func restoreTabs(resolved: ResolvedAuth) async {
+        let metaURL = sessionStore.sessionsDirectory().appendingPathComponent("tab-meta.json")
+        guard FileManager.default.fileExists(atPath: metaURL.path),
+              let metaData = try? Data(contentsOf: metaURL),
+              let meta = try? JSONDecoder().decode(TabMeta.self, from: metaData) else {
+            // No tab metadata yet. Try to migrate a previous "last" session into the first tab.
+            if let last = try? sessionStore.load(name: "last"), !last.messages.isEmpty {
+                let agent = await makeCodingAgent(CodingAgentConfig(model: resolved.model, cwd: cwd))
+                agent.state.messages = last.messages
+                if last.modelID != agent.state.model.id {
+                    agent.state.model = switchedModel(from: agent.state.model, to: last.modelID)
+                }
+                let transcript = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
+                let tab = TabSession(id: UUID().uuidString, agent: agent, transcript: transcript)
+                tabs = [tab]
+                activeTabIndex = 0
+                setupSubscriptions(for: tab)
+            }
+            return
+        }
+
+        for (index, id) in meta.tabIDs.enumerated() {
+            guard let record = try? sessionStore.load(name: "tab-\(id)") else { continue }
+            let agent = await makeCodingAgent(CodingAgentConfig(model: resolved.model, cwd: cwd))
+            agent.state.messages = record.messages
+            if record.modelID != agent.state.model.id {
+                agent.state.model = switchedModel(from: agent.state.model, to: record.modelID)
+            }
+            let transcript = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
+            let tab = TabSession(id: id, agent: agent, transcript: transcript)
+            tabs.append(tab)
+            setupSubscriptions(for: tab)
+            if index == meta.activeIndex {
+                activeTabIndex = tabs.count - 1
+            }
+        }
+
+        if activeTabIndex >= tabs.count {
+            activeTabIndex = max(0, tabs.count - 1)
+        }
+    }
+
+    private func createNewTab() {
+        guard let firstTab = tabs.first else { return }
+        let config = CodingAgentConfig(model: firstTab.agent.state.model, cwd: cwd)
+        Task {
+            let agent = await makeCodingAgent(config)
+            let transcript = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
+            let tab = TabSession(id: UUID().uuidString, agent: agent, transcript: transcript)
+            setupSubscriptions(for: tab)
+            tabs.append(tab)
+            activeTabIndex = tabs.count - 1
+            render()
+        }
+    }
+
+    private func closeCurrentTab() {
+        guard !tabs.isEmpty else { NSApp.terminate(nil); return }
+        let tab = tabs[activeTabIndex]
+        let msgs = tab.agent.state.messages
+        if !msgs.isEmpty {
+            try? sessionStore.save(name: "tab-\(tab.id)", modelID: tab.agent.state.model.id, messages: msgs)
+        }
+        tabs.remove(at: activeTabIndex)
+        if tabs.isEmpty {
+            NSApp.terminate(nil)
+            return
+        }
+        if activeTabIndex >= tabs.count {
+            activeTabIndex = tabs.count - 1
+        }
+        render()
+    }
+
+    @objc private func tabSelected(_ sender: NSSegmentedControl) {
+        activeTabIndex = sender.selectedSegment
+        render()
+    }
+
     // MARK: - Setup
 
     private func setupWindow() {
+        let defaultFrame = NSRect(x: 0, y: 0, width: 920, height: 640)
+        let savedFrameString = UserDefaults.standard.string(forKey: "ForgeLoopWindowFrame")
+        let restoredFrame = savedFrameString.map { NSRectFromString($0) }
+        let initialFrame = restoredFrame.flatMap { $0.isEmpty ? nil : $0 } ?? defaultFrame
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 920, height: 640),
+            contentRect: initialFrame,
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "ForgeLoop"
         window.delegate = self
-        window.center()
+        if restoredFrame?.isEmpty != false {
+            window.center()
+        }
 
         let root = NSStackView()
         root.orientation = .vertical
@@ -167,10 +279,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         modelPicker.target = self
         modelPicker.action = #selector(modelPickerChanged(_:))
 
+        let tabSelector = NSSegmentedControl()
+        tabSelector.segmentStyle = .capsule
+        tabSelector.target = self
+        tabSelector.action = #selector(tabSelected(_:))
+
         let headerBar = NSStackView()
         headerBar.orientation = .horizontal
         headerBar.spacing = 12
         headerBar.addArrangedSubview(title)
+        headerBar.addArrangedSubview(tabSelector)
         headerBar.addArrangedSubview(modelPicker)
 
         let status = NSTextField(labelWithString: "● ready")
@@ -209,6 +327,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         input.backgroundColor = .controlBackgroundColor
         input.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
         input.textContainerInset = NSSize(width: 8, height: 8)
+        input.delegate = self
 
         let inputScroll = NSScrollView()
         inputScroll.borderType = .bezelBorder
@@ -216,7 +335,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         inputScroll.documentView = input
         inputScroll.translatesAutoresizingMaskIntoConstraints = false
 
-        let hints = NSTextField(labelWithString: "Ctrl+J submit | Enter newline | Esc abort | Ctrl+C quit")
+        let hints = NSTextField(labelWithString: "Ctrl+J submit | Enter newline | Esc abort | Ctrl+C quit | ⌘T new tab | ⌘W close tab")
         hints.font = NSFont.systemFont(ofSize: 11, weight: .regular)
         hints.textColor = .secondaryLabelColor
 
@@ -249,12 +368,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         self.inputView = input
         self.keyHintLabel = hints
         self.modelPicker = modelPicker
+        self.tabSelector = tabSelector
     }
 
     // MARK: - Model Picker
 
     private func populateModelPicker() {
-        guard let agent, let picker = modelPicker else { return }
+        guard !tabs.isEmpty, let picker = modelPicker else { return }
+        let agent = activeTab.agent
         let items = suggestedModelPickerItems(for: agent.state.model)
         picker.removeAllItems()
         modelPickerIDs = items.map { $0.id }
@@ -267,7 +388,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func modelPickerChanged(_ sender: NSPopUpButton) {
-        guard let agent else { return }
+        guard !tabs.isEmpty else { return }
+        let agent = activeTab.agent
         let index = sender.indexOfSelectedItem
         guard index >= 0, index < modelPickerIDs.count else { return }
         let modelID = modelPickerIDs[index]
@@ -312,90 +434,109 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func handleKeyAction(_ action: KeyAction) async {
-        footerNotice = nil
+        activeTab.footerNotice = nil
 
-        guard let agent else {
-            // Agent not ready yet; only allow exit.
+        guard !tabs.isEmpty else {
             if action == .exit { NSApp.terminate(nil) }
             return
         }
 
+        let agent = activeTab.agent
+
         switch action {
         case .insert(let character):
-            inputState.handle(.insert(character))
+            activeTab.inputState.handle(.insert(character))
 
         case .insertNewline:
             if agent.state.isStreaming {
                 submit()
             } else {
-                inputState.handle(.insertNewline)
+                activeTab.inputState.handle(.insertNewline)
             }
 
         case .submit:
             submit()
 
         case .delete:
-            inputState.handle(.backspace)
+            activeTab.inputState.handle(.backspace)
 
         case .deleteForward:
-            inputState.handle(.deleteForward)
+            activeTab.inputState.handle(.deleteForward)
 
         case .moveLeft:
-            inputState.handle(.moveLeft)
+            activeTab.inputState.handle(.moveLeft)
 
         case .moveRight:
-            inputState.handle(.moveRight)
+            activeTab.inputState.handle(.moveRight)
 
         case .moveUp:
-            inputState.handle(.moveUp)
+            activeTab.inputState.handle(.moveUp)
 
         case .moveDown:
-            inputState.handle(.moveDown)
+            activeTab.inputState.handle(.moveDown)
 
         case .moveToLineStart:
-            inputState.handle(.moveToLineStart)
+            activeTab.inputState.handle(.moveToLineStart)
 
         case .moveToLineEnd:
-            inputState.handle(.moveToLineEnd)
+            activeTab.inputState.handle(.moveToLineEnd)
 
         case .moveToBufferStart:
-            inputState.handle(.moveToBufferStart)
+            activeTab.inputState.handle(.moveToBufferStart)
 
         case .moveToBufferEnd:
-            inputState.handle(.moveToBufferEnd)
+            activeTab.inputState.handle(.moveToBufferEnd)
 
         case .killToLineStart:
-            inputState.handle(.killToLineStart)
+            activeTab.inputState.handle(.killToLineStart)
 
         case .killToLineEnd:
-            inputState.handle(.killToLineEnd)
+            activeTab.inputState.handle(.killToLineEnd)
 
         case .paste(let text):
-            inputState.handle(.insertText(text))
+            activeTab.inputState.handle(.insertText(text))
 
         case .cancel:
             if agent.state.isStreaming {
                 abort()
             } else {
-                inputState.handle(.clear)
+                activeTab.inputState.handle(.clear)
             }
 
         case .exit:
             NSApp.terminate(nil)
 
-        case .historyPrev, .historyNext, .ignore:
+        case .historyPrev:
+            if let text = activeTab.inputHistory.prev() {
+                activeTab.inputState.handle(.replace(text))
+            }
+
+        case .historyNext:
+            if let text = activeTab.inputHistory.next() {
+                activeTab.inputState.handle(.replace(text))
+            } else {
+                activeTab.inputState.handle(.clear)
+            }
+
+        case .newTab:
+            createNewTab()
+
+        case .closeTab:
+            closeCurrentTab()
+
+        case .ignore:
             break
         }
     }
 
     private func handlePassthrough(_ event: KeyEvent) {
-        footerNotice = nil
+        activeTab.footerNotice = nil
 
         switch event.key {
         case .character(let character) where !event.modifiers.contains(.ctrl):
-            inputState.handle(.insert(character))
+            activeTab.inputState.handle(.insert(character))
         case .paste(let text):
-            inputState.handle(.insertText(text))
+            activeTab.inputState.handle(.insertText(text))
         default:
             break
         }
@@ -404,12 +545,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - Agent
 
     private func submit() {
-        footerNotice = nil
-        guard let agent else { return }
-        let text = inputState.text
+        activeTab.footerNotice = nil
+        guard !tabs.isEmpty else { return }
+        let agent = activeTab.agent
+        let text = activeTab.inputState.text
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        inputState.handle(.clear)
+        activeTab.inputState.handle(.clear)
         guard !trimmed.isEmpty else { return }
+        activeTab.inputHistory.commit(trimmed)
 
         if trimmed.hasPrefix("/") {
             let result = slashRegistry.execute(
@@ -423,13 +566,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             )
             switch result {
             case .feedback(let text):
-                footerNotice = text
+                activeTab.footerNotice = text
             case .submitted:
-                footerNotice = nil
+                activeTab.footerNotice = nil
             case .exit:
                 NSApp.terminate(nil)
             case .showModelPicker:
-                footerNotice = "Model picker is not supported in the AppKit window."
+                activeTab.footerNotice = "Model picker is not supported in the AppKit window."
             }
             render()
             return
@@ -445,11 +588,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func abort() {
-        guard let agent else { return }
+        guard !tabs.isEmpty else { return }
+        let agent = activeTab.agent
         agent.abort()
-        if let blockID = currentBlockID {
-            transcript.applyCore(.blockCancel(id: blockID))
-            currentBlockID = nil
+        if let blockID = activeTab.currentBlockID {
+            activeTab.transcript.applyCore(.blockCancel(id: blockID))
+            activeTab.currentBlockID = nil
         }
     }
 
@@ -462,46 +606,59 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let contentWidth = inputView.enclosingScrollView?.contentSize.width ?? 600
         let estimatedColumns = max(1, Int(contentWidth / cellWidth) - 2)
 
-        if inputState.viewport?.width != estimatedColumns {
-            inputState.setViewport(Viewport(width: estimatedColumns))
+        if activeTab.inputState.viewport?.width != estimatedColumns {
+            activeTab.inputState.setViewport(Viewport(width: estimatedColumns))
         }
     }
 
     private func render() {
-        guard let agent else { return }
+        guard !tabs.isEmpty else { return }
+        let agent = activeTab.agent
 
         // Status bar: phase | model | message count | pending tools | bg running.
         var parts: [String] = []
         parts.append(agent.state.isStreaming ? "● generating" : "● ready")
         parts.append("model: \(agent.state.model.id)")
         parts.append("\(agent.state.messages.count) messages")
-        if let pending = transcript?.pendingToolCount, pending > 0 {
-            parts.append("\(pending) tools pending")
+        if activeTab.transcript.pendingToolCount > 0 {
+            parts.append("\(activeTab.transcript.pendingToolCount) tools pending")
         }
-        let runningBg = bgTaskLines.filter { $0.hasPrefix("◉") }.count
+        let runningBg = activeTab.bgTaskLines.filter { $0.hasPrefix("◉") }.count
         if runningBg > 0 {
             parts.append("\(runningBg) bg running")
         }
         var statusText = parts.joined(separator: "  |  ")
-        if let footerNotice {
+        if let footerNotice = activeTab.footerNotice {
             statusText += "\n" + footerNotice
         }
         statusLabel?.stringValue = statusText
 
         // Background task display (max 3 lines).
-        bgTaskLabel?.stringValue = bgTaskLines.prefix(3).joined(separator: "\n")
+        bgTaskLabel?.stringValue = activeTab.bgTaskLines.prefix(3).joined(separator: "\n")
 
         // Colored transcript.
-        messageSegments = buildMessageSegments(from: transcript?.transcriptLines ?? [])
-        let attributedText = buildAttributedString(from: messageSegments)
+        activeTab.messageSegments = buildMessageSegments(from: activeTab.transcript.transcriptLines)
+        let attributedText = buildAttributedString(from: activeTab.messageSegments)
         transcriptView?.textStorage?.setAttributedString(attributedText)
         scrollTranscriptToBottomIfNeeded()
 
-        inputView?.string = inputState.lines.joined(separator: "\n")
+        inputView?.string = activeTab.inputState.lines.joined(separator: "\n")
         inputView?.scrollToEndOfDocument(nil)
 
         titleLabel?.stringValue = "ForgeLoop"
+        window?.title = "ForgeLoop — \(agent.state.model.id) · \(agent.state.messages.count) messages"
         modelPicker?.isEnabled = !agent.state.isStreaming
+
+        // Tab selector synchronization.
+        if let tabSelector {
+            tabSelector.segmentCount = tabs.count
+            for (i, _) in tabs.enumerated() {
+                tabSelector.setLabel("Session \(i + 1)", forSegment: i)
+            }
+            if tabSelector.selectedSegment != activeTabIndex {
+                tabSelector.selectedSegment = activeTabIndex
+            }
+        }
     }
 
     private func scrollTranscriptToBottomIfNeeded() {
@@ -520,7 +677,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         for line in lines {
             let stripped = ansiStripped(line)
             let type: MessageSegmentType
-            if stripped.hasPrefix("❯ ") {
+            if stripped.hasPrefix("│") {
+                type = .codeBlock
+            } else if stripped.hasPrefix("❯ ") {
                 type = .user
             } else if stripped.hasPrefix("💭 ") {
                 type = .thinking
@@ -546,27 +705,56 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let result = NSMutableAttributedString()
         let baseFont = transcriptView?.font ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
         let italicFont = NSFontManager.shared.convert(baseFont, toHaveTrait: .italicFontMask)
+        let boldFont = NSFontManager.shared.convert(baseFont, toHaveTrait: .boldFontMask)
 
         for (index, segment) in segments.enumerated() {
             if index > 0 {
                 result.append(NSAttributedString(string: "\n"))
             }
-            let text = segment.lines.joined(separator: "\n")
             let color = colorForSegmentType(segment.type)
             let font: NSFont
             switch segment.type {
             case .thinking:
                 font = italicFont
+            case .user, .error:
+                font = boldFont
             default:
                 font = baseFont
             }
-            let attributes: [NSAttributedString.Key: Any] = [
-                .foregroundColor: color,
-                .font: font,
-            ]
-            result.append(NSAttributedString(string: text, attributes: attributes))
+
+            if segment.type == .codeBlock {
+                appendCodeBlock(segment, to: result, baseFont: baseFont, defaultColor: color)
+            } else {
+                let text = segment.lines.joined(separator: "\n")
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .foregroundColor: color,
+                    .font: font,
+                ]
+                result.append(NSAttributedString(string: text, attributes: attributes))
+            }
         }
         return result
+    }
+
+    private func appendCodeBlock(
+        _ segment: MessageSegment,
+        to result: NSMutableAttributedString,
+        baseFont: NSFont,
+        defaultColor: NSColor
+    ) {
+        let backgroundColor = NSColor.controlBackgroundColor
+        for (lineIndex, line) in segment.lines.enumerated() {
+            if lineIndex > 0 {
+                result.append(NSAttributedString(string: "\n"))
+            }
+            let lineColor = line.trimmingCharacters(in: .whitespaces).hasPrefix("//") ? NSColor.systemGreen : defaultColor
+            let attributes: [NSAttributedString.Key: Any] = [
+                .foregroundColor: lineColor,
+                .font: baseFont,
+                .backgroundColor: backgroundColor,
+            ]
+            result.append(NSAttributedString(string: line, attributes: attributes))
+        }
     }
 
     private func colorForSegmentType(_ type: MessageSegmentType) -> NSColor {
@@ -585,6 +773,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return .systemRed
         case .notification:
             return .secondaryLabelColor
+        case .codeBlock:
+            return .labelColor
         }
     }
 
@@ -633,4 +823,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         NSApp.terminate(nil)
     }
+}
+
+private struct TabMeta: Codable {
+    var tabIDs: [String]
+    var activeIndex: Int
 }

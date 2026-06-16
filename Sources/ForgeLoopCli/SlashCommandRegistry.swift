@@ -339,6 +339,45 @@ public func makeDefaultSlashCommandRegistry() -> SlashCommandRegistry {
                 }
             },
             SlashCommand(
+                names: ["/export"],
+                usage: "/export [name]",
+                summary: "Export conversation as Markdown to the desktop"
+            ) { argument, context in
+                let trimmed = argument?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let fileName = trimmed.isEmpty ? "forgeloop-export.md" : "\(trimmed).md"
+
+                guard let desktopURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first else {
+                    return .feedback("Could not locate Desktop directory")
+                }
+                let targetURL = desktopURL.appendingPathComponent(fileName)
+
+                var lines: [String] = []
+                for message in context.agent.state.messages {
+                    switch message {
+                    case .user(let userMessage):
+                        lines.append("**You:** \(userMessage.text)")
+                    case .assistant(let assistantMessage):
+                        let textBlocks = assistantMessage.content.compactMap { block -> String? in
+                            if case .text(let content) = block { return content.text }
+                            return nil
+                        }
+                        if !textBlocks.isEmpty {
+                            lines.append("**Assistant:** \(textBlocks.joined(separator: " "))")
+                        }
+                    case .tool(let toolMessage):
+                        lines.append("**Tool \(toolMessage.toolCallId):** \(toolMessage.output)")
+                    }
+                }
+
+                let content = lines.joined(separator: "\n\n")
+                do {
+                    try content.write(to: targetURL, atomically: true, encoding: .utf8)
+                    return .feedback("Exported conversation to \(targetURL.path)")
+                } catch {
+                    return .feedback("Failed to export conversation: \(error)")
+                }
+            },
+            SlashCommand(
                 names: ["/help"],
                 usage: "/help",
                 summary: "Show this help"

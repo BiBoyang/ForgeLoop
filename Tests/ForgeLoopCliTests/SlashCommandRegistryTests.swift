@@ -26,6 +26,7 @@ final class SlashCommandRegistryTests: XCTestCase {
         XCTAssertNotNil(registry.command(named: "/save"))
         XCTAssertNotNil(registry.command(named: "/load"))
         XCTAssertNotNil(registry.command(named: "/sessions"))
+        XCTAssertNotNil(registry.command(named: "/export"))
         XCTAssertNotNil(registry.command(named: "/help"))
         XCTAssertNotNil(registry.command(named: "/exit"))
     }
@@ -51,6 +52,7 @@ final class SlashCommandRegistryTests: XCTestCase {
         XCTAssertTrue(helpText.contains("/save"))
         XCTAssertTrue(helpText.contains("/load"))
         XCTAssertTrue(helpText.contains("/sessions"))
+        XCTAssertTrue(helpText.contains("/export"))
         XCTAssertTrue(helpText.contains("/help"))
         XCTAssertTrue(helpText.contains("/exit, /quit"))
     }
@@ -65,7 +67,7 @@ final class SlashCommandRegistryTests: XCTestCase {
         )
 
         if case .feedback(let text) = result {
-            XCTAssertTrue(text.contains("Available: /model, /compact, /queue, /attach, /attachments, /detach, /save, /load, /sessions, /help, /exit"))
+            XCTAssertTrue(text.contains("Available: /model, /compact, /queue, /attach, /attachments, /detach, /save, /load, /sessions, /export, /help, /exit"))
         } else {
             XCTFail("Expected feedback result")
         }
