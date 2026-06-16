@@ -489,7 +489,7 @@ func runCodingTUIInternal(
 
     let attachmentStore = AttachmentStore()
 
-    _ = agent.subscribe { event, _ in
+    _ = agent.subscribe { @MainActor event, _ in
         await MainActor.run {
             let eventPriority: RenderLoop.Priority = {
                 switch event {
@@ -513,125 +513,11 @@ func runCodingTUIInternal(
                 activeFooterNotice = resolveFooterNotice(current: activeFooterNotice, incoming: notice)
             }
 
-            let currentModel = agent.state.model
-            let modelLabel = labelForModel(currentModel)
             if !agent.state.isStreaming {
                 isAbortRequested = false
             }
-            let size = getTerminalSize()
-            if let last = lastTerminalSize, let current = size, last != current {
-                tui.updateTerminalSize(width: current.columns, height: current.rows)
-            }
-            lastTerminalSize = size
 
-            let headerLines = [
-                Style.header("✻ forgeloop replica"),
-                Style.dimmed("  \(modelLabel)"),
-                Style.dimmed("  \(cwd)"),
-                "",
-            ]
-            let config = ScreenLayoutConfig(
-                terminalHeight: size?.rows ?? 24,
-                terminalWidth: size?.columns ?? 80
-            )
-            let statusLines = makeStatusLines(
-                snapshot: CodingStatusSnapshot(
-                    modelLabel: modelLabel,
-                    phase: resolveStatusPhase(
-                        isStreaming: agent.state.isStreaming,
-                        isAborting: isAbortRequested,
-                        isSelectingModel: activeModelPicker != nil,
-                        hasRunningBackgroundTasks: backgroundTaskSummary.runningCount > 0
-                    ),
-                    pendingToolCount: renderer.pendingToolCount,
-                    queuedMessageCount: agent.queuedSteeringMessages().count,
-                    attachmentCount: attachmentStore.count,
-                    backgroundTasks: backgroundTaskSummary,
-                    didCompactRecently: didCompactRecently
-                )
-            )
-            let footerRender: FooterRenderState = {
-                if let activeModelPicker {
-                    let inputLines = pickerRenderer.render(state: activeModelPicker)
-                    let frame = CodingTUIFrameBuilder.build(input: .init(
-                        queueLines: queueLines,
-                        statusLines: (activeFooterNotice?.lines ?? []) + statusLines,
-                        inputLines: inputLines,
-                        terminalHeight: config.terminalHeight,
-                        terminalWidth: config.terminalWidth,
-                        showHeader: config.showHeader
-                    ))
-                    return FooterRenderState(inputLines: inputLines, frame: frame, cursorOffset: nil)
-                }
-
-                let inputRender = inputState.render(prefix: "❯ ", totalWidth: config.terminalWidth)
-                let inputLines = makeInputLines(inputLine: inputRender.line, attachmentCount: attachmentStore.count)
-                let frame = CodingTUIFrameBuilder.build(input: .init(
-                    queueLines: queueLines,
-                    statusLines: (activeFooterNotice?.lines ?? []) + statusLines,
-                    inputLines: inputLines,
-                    terminalHeight: config.terminalHeight,
-                    terminalWidth: config.terminalWidth,
-                    showHeader: config.showHeader,
-                    cursorOffset: inputRender.cursorOffset
-                ))
-                return FooterRenderState(
-                    inputLines: inputLines,
-                    frame: frame,
-                    cursorOffset: inputRender.cursorOffset
-                )
-            }()
-
-            guard tui.isTTY else {
-                let frame = CodingTUIFrameBuilder.build(input: .init(
-                    headerLines: headerLines,
-                    transcriptLines: renderer.transcriptLines,
-                    queueLines: queueLines,
-                    statusLines: (activeFooterNotice?.lines ?? []) + statusLines,
-                    inputLines: footerRender.inputLines,
-                    pinnedTranscriptRange: renderer.preferredPinnedRange,
-                    terminalHeight: config.terminalHeight,
-                    terminalWidth: config.terminalWidth,
-                    showHeader: config.showHeader
-                ))
-                outputFrame(frame, eventPriority)
-                return
-            }
-
-            if !hasPrintedStaticHeader {
-                tui.appendFrame(lines: headerLines)
-                hasPrintedStaticHeader = true
-            }
-
-            if agent.state.isStreaming {
-                if !appendModeActive {
-                    tui.requestRender(lines: [])
-                    appendModeActive = true
-                }
-
-                let appendedTranscriptLines = transcriptAppendState.consume(
-                    transcript: renderer.transcriptLines,
-                    activeRange: renderer.activeStreamingRange
-                )
-                if !appendedTranscriptLines.isEmpty {
-                    tui.appendFrame(lines: appendedTranscriptLines)
-                }
-                return
-            }
-
-            if appendModeActive {
-                let remainingTranscriptLines = transcriptAppendState.consume(
-                    transcript: renderer.transcriptLines,
-                    activeRange: nil
-                )
-                if !remainingTranscriptLines.isEmpty {
-                    tui.appendFrame(lines: remainingTranscriptLines)
-                }
-                tui.resetRetainedFrame()
-                appendModeActive = false
-            }
-
-            outputFrame(footerRender.frame, eventPriority)
+            renderFrame(priority: eventPriority)
         }
     }
 
