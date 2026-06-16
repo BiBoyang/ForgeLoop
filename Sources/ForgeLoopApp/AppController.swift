@@ -23,6 +23,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var modelPicker: NSPopUpButton?
     private var modelPickerIDs: [String] = []
 
+    private let slashRegistry = makeDefaultSlashCommandRegistry()
+    private var footerNotice: String? = nil
+    private var bgTaskLines: [String] = []
+    private var bgTaskLabel: NSTextField?
+
     private var inputState = MultiLineInputState(viewport: Viewport(width: 60))
     private var transcript: TranscriptRenderer!
     private var agent: Agent?
@@ -88,6 +93,28 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     self.render()
                 }
 
+                Task { @MainActor [weak self] in
+                    while true {
+                        try? await Task.sleep(for: .seconds(2))
+                        guard let self, let manager = self.agent?.backgroundTaskManager else { continue }
+                        let tasks = await manager.status()
+                        self.bgTaskLines = tasks.map { record in
+                            let symbol: String
+                            switch record.status {
+                            case .running: symbol = "◉"
+                            case .success: symbol = "✓"
+                            case .failed: symbol = "✗"
+                            case .cancelled: symbol = "⊘"
+                            }
+                            let command = record.command.count > 40
+                                ? String(record.command.prefix(40)) + "..."
+                                : record.command
+                            return "\(symbol) [\(record.id)] \(command)"
+                        }
+                        self.render()
+                    }
+                }
+
                 self.window?.makeKeyAndOrderFront(nil)
                 NSApp.activate(ignoringOtherApps: true)
                 self.render()
@@ -148,6 +175,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let status = NSTextField(labelWithString: "● ready")
         status.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        status.usesSingleLineMode = false
+        status.maximumNumberOfLines = 0
+        status.lineBreakMode = .byWordWrapping
+
+        let bgTasks = NSTextField(labelWithString: "")
+        bgTasks.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        bgTasks.textColor = .secondaryLabelColor
+        bgTasks.isEditable = false
+        bgTasks.isSelectable = false
+        bgTasks.usesSingleLineMode = false
+        bgTasks.maximumNumberOfLines = 3
+        bgTasks.lineBreakMode = .byWordWrapping
+        bgTasks.setContentCompressionResistancePriority(.required, for: .vertical)
 
         let transcript = NSTextView()
         transcript.isEditable = false
@@ -182,6 +222,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         root.addArrangedSubview(headerBar)
         root.addArrangedSubview(status)
+        root.addArrangedSubview(bgTasks)
         root.addArrangedSubview(transcriptScroll)
         root.addArrangedSubview(inputScroll)
         root.addArrangedSubview(hints)
@@ -203,6 +244,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         self.window = window
         self.titleLabel = title
         self.statusLabel = status
+        self.bgTaskLabel = bgTasks
         self.transcriptView = transcript
         self.inputView = input
         self.keyHintLabel = hints
@@ -270,6 +312,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func handleKeyAction(_ action: KeyAction) async {
+        footerNotice = nil
+
         guard let agent else {
             // Agent not ready yet; only allow exit.
             if action == .exit { NSApp.terminate(nil) }
@@ -345,6 +389,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func handlePassthrough(_ event: KeyEvent) {
+        footerNotice = nil
+
         switch event.key {
         case .character(let character) where !event.modifiers.contains(.ctrl):
             inputState.handle(.insert(character))
@@ -358,11 +404,36 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - Agent
 
     private func submit() {
+        footerNotice = nil
         guard let agent else { return }
         let text = inputState.text
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         inputState.handle(.clear)
         guard !trimmed.isEmpty else { return }
+
+        if trimmed.hasPrefix("/") {
+            let result = slashRegistry.execute(
+                trimmed,
+                context: SlashCommandContext(
+                    agent: agent,
+                    modelStore: modelStore,
+                    attachmentStore: AttachmentStore(),
+                    sessionStore: sessionStore
+                )
+            )
+            switch result {
+            case .feedback(let text):
+                footerNotice = text
+            case .submitted:
+                footerNotice = nil
+            case .exit:
+                NSApp.terminate(nil)
+            case .showModelPicker:
+                footerNotice = "Model picker is not supported in the AppKit window."
+            }
+            render()
+            return
+        }
 
         if agent.state.isStreaming {
             agent.steer(.user(UserMessage(text: trimmed)))
@@ -399,7 +470,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func render() {
         guard let agent else { return }
 
-        // Status bar: phase | model | message count | pending tools.
+        // Status bar: phase | model | message count | pending tools | bg running.
         var parts: [String] = []
         parts.append(agent.state.isStreaming ? "● generating" : "● ready")
         parts.append("model: \(agent.state.model.id)")
@@ -407,19 +478,41 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let pending = transcript?.pendingToolCount, pending > 0 {
             parts.append("\(pending) tools pending")
         }
-        statusLabel?.stringValue = parts.joined(separator: "  |  ")
+        let runningBg = bgTaskLines.filter { $0.hasPrefix("◉") }.count
+        if runningBg > 0 {
+            parts.append("\(runningBg) bg running")
+        }
+        var statusText = parts.joined(separator: "  |  ")
+        if let footerNotice {
+            statusText += "\n" + footerNotice
+        }
+        statusLabel?.stringValue = statusText
+
+        // Background task display (max 3 lines).
+        bgTaskLabel?.stringValue = bgTaskLines.prefix(3).joined(separator: "\n")
 
         // Colored transcript.
         messageSegments = buildMessageSegments(from: transcript?.transcriptLines ?? [])
         let attributedText = buildAttributedString(from: messageSegments)
         transcriptView?.textStorage?.setAttributedString(attributedText)
-        transcriptView?.scrollToEndOfDocument(nil)
+        scrollTranscriptToBottomIfNeeded()
 
         inputView?.string = inputState.lines.joined(separator: "\n")
         inputView?.scrollToEndOfDocument(nil)
 
         titleLabel?.stringValue = "ForgeLoop"
         modelPicker?.isEnabled = !agent.state.isStreaming
+    }
+
+    private func scrollTranscriptToBottomIfNeeded() {
+        guard let scrollView = transcriptView?.enclosingScrollView,
+              let documentView = scrollView.documentView else { return }
+        let visibleRect = scrollView.documentVisibleRect
+        let contentHeight = documentView.bounds.height
+        let distanceToBottom = contentHeight - visibleRect.maxY
+        if distanceToBottom < 30 {
+            transcriptView?.scrollToEndOfDocument(nil)
+        }
     }
 
     private func buildMessageSegments(from lines: [String]) -> [MessageSegment] {

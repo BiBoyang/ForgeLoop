@@ -73,14 +73,14 @@ public func switchedModel(from currentModel: Model, to modelId: String) -> Model
 }
 
 @MainActor
-struct PromptController {
+public struct PromptController {
     let agent: Agent
     var modelStore: ModelStore?
     let attachmentStore: AttachmentStore
     let sessionStore: SessionStore
     let slashCommandRegistry: SlashCommandRegistry
 
-    enum SubmitResult: Equatable {
+    public enum SubmitResult: Equatable {
         case submitted
         case feedback(String)
         case showModelPicker(ListPickerState)

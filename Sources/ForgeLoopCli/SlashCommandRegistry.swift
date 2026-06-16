@@ -4,13 +4,13 @@ import ForgeLoopAgent
 import ForgeLoopTUI
 
 @MainActor
-struct SlashCommandContext {
-    let agent: Agent
-    let modelStore: ModelStore?
-    let attachmentStore: AttachmentStore
-    let sessionStore: SessionStore
+public struct SlashCommandContext {
+    public let agent: Agent
+    public let modelStore: ModelStore?
+    public let attachmentStore: AttachmentStore
+    public let sessionStore: SessionStore
 
-    init(
+    public init(
         agent: Agent,
         modelStore: ModelStore? = nil,
         attachmentStore: AttachmentStore,
@@ -58,14 +58,14 @@ struct SlashCommand {
 }
 
 @MainActor
-struct SlashCommandRegistry {
+public struct SlashCommandRegistry {
     let commands: [SlashCommand]
 
     func command(named name: String) -> SlashCommand? {
         commands.first(where: { $0.matches(name) })
     }
 
-    func execute(_ text: String, context: SlashCommandContext) -> PromptController.SubmitResult {
+    public func execute(_ text: String, context: SlashCommandContext) -> PromptController.SubmitResult {
         let parts = text.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
         guard let commandName = parts.first.map(String.init) else {
             return .feedback("Unknown command")
@@ -121,7 +121,7 @@ func queueMessagePreview(_ message: Message) -> String {
 }
 
 @MainActor
-func makeDefaultSlashCommandRegistry() -> SlashCommandRegistry {
+public func makeDefaultSlashCommandRegistry() -> SlashCommandRegistry {
     SlashCommandRegistry(
         commands: [
             SlashCommand(
