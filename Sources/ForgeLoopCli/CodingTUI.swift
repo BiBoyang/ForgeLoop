@@ -301,7 +301,12 @@ func runCodingTUIInternal(
     cwd: String
 ) async throws {
     let isInteractiveTTY = isatty(STDOUT_FILENO) == 1 && isatty(STDIN_FILENO) == 1
-    let tui = TUI(isTTY: isInteractiveTTY)
+    let tui = TUI(
+        isTTY: isInteractiveTTY,
+        liveBudget: 4,
+        liveBudgetMode: .physicalRows,
+        cursorPositioningMode: .marker
+    )
     let renderer = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
     let agent = await makeCodingAgent(CodingAgentConfig(model: model, cwd: cwd))
     let modelStore = ModelStore()
