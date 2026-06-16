@@ -192,14 +192,14 @@ final class CodingTUIStatusTests: XCTestCase {
     // MARK: - makeInputLines
 
     func testMakeInputLinesWithoutAttachmentsReturnsOnlyInputLine() {
-        let lines = makeInputLines(inputLine: "❯ hello", attachmentCount: 0)
+        let lines = makeInputLines(inputLines: ["hello"], attachmentCount: 0)
 
         XCTAssertEqual(lines.count, 1)
         XCTAssertEqual(lines[0], "❯ hello")
     }
 
     func testMakeInputLinesWithAttachmentsPutsHintAboveInputLine() {
-        let lines = makeInputLines(inputLine: "❯ ", attachmentCount: 2)
+        let lines = makeInputLines(inputLines: [""], attachmentCount: 2)
 
         XCTAssertEqual(lines.count, 2)
         XCTAssertTrue(lines[0].contains("2 attachments"))
@@ -207,7 +207,7 @@ final class CodingTUIStatusTests: XCTestCase {
     }
 
     func testMakeInputLinesSingularAttachment() {
-        let lines = makeInputLines(inputLine: "❯ ", attachmentCount: 1)
+        let lines = makeInputLines(inputLines: [""], attachmentCount: 1)
 
         XCTAssertEqual(lines.count, 2)
         XCTAssertTrue(lines[0].contains("1 attachment"))
@@ -215,10 +215,15 @@ final class CodingTUIStatusTests: XCTestCase {
     }
 
     func testMakeInputLinesPromptLineIsAlwaysLast() {
-        let promptLine = "❯ some input here"
-        let lines = makeInputLines(inputLine: promptLine, attachmentCount: 5)
+        let lines = makeInputLines(inputLines: ["some input here"], attachmentCount: 5)
 
-        XCTAssertEqual(lines.last, promptLine)
+        XCTAssertEqual(lines.last, "❯ some input here")
+    }
+
+    func testMakeInputLinesMultiLineContinuationIndent() {
+        let lines = makeInputLines(inputLines: ["line 1", "line 2", "line 3"], attachmentCount: 0)
+
+        XCTAssertEqual(lines, ["❯ line 1", "  line 2", "  line 3"])
     }
 
     // MARK: - FooterNotice
@@ -341,13 +346,13 @@ final class CodingTUIStatusTests: XCTestCase {
             terminalHeight: 24,
             terminalWidth: 80,
             showHeader: true,
-            cursorOffset: 2
+            cursorPlacement: CursorPlacement(up: 0, offset: 2)
         )
         let frame = CodingTUIFrameBuilder.build(input: input)
 
         XCTAssertEqual(frame.committed, ["H", "T1", "T2", "", "Q", "", "S"])
         XCTAssertEqual(frame.live, ["", "> "])
-        XCTAssertEqual(frame.cursorOffset, 2)
+        XCTAssertEqual(frame.cursorPlacement, CursorPlacement(up: 0, offset: 2))
     }
 
     func testFrameBuilderWithPinnedRangePreservesPinnedInOutput() {
@@ -376,7 +381,7 @@ final class CodingTUIStatusTests: XCTestCase {
 
         XCTAssertEqual(frame.committed, ["H", "T"])
         XCTAssertTrue(frame.live.isEmpty)
-        XCTAssertNil(frame.cursorOffset)
+        XCTAssertNil(frame.cursorPlacement)
     }
 
     func testFrameBuilderFooterOnlyPathMatchesDirectRender() {
@@ -387,17 +392,17 @@ final class CodingTUIStatusTests: XCTestCase {
             inputLines: ["> hello"],
             terminalHeight: 24,
             terminalWidth: 80,
-            cursorOffset: 3
+            cursorPlacement: CursorPlacement(up: 0, offset: 3)
         )
         let frame = CodingTUIFrameBuilder.build(input: input)
 
         XCTAssertEqual(frame.committed, ["", "q1", "", "STATUS"])
         XCTAssertEqual(frame.live, ["", "> hello"])
-        XCTAssertEqual(frame.cursorOffset, 3)
+        XCTAssertEqual(frame.cursorPlacement, CursorPlacement(up: 0, offset: 3))
     }
 
-    func testFrameBuilderPickerPathHasNoCursorOffset() {
-        // Simulates the picker path: input lines from ListPickerRenderer, no cursorOffset
+    func testFrameBuilderPickerPathHasNoCursorPlacement() {
+        // Simulates the picker path: input lines from ListPickerRenderer, no cursorPlacement
         let input = CodingTUIFrameBuilder.Input(
             queueLines: ["q1"],
             statusLines: ["STATUS"],
@@ -409,7 +414,7 @@ final class CodingTUIStatusTests: XCTestCase {
 
         XCTAssertEqual(frame.committed, ["", "q1", "", "STATUS"])
         XCTAssertEqual(frame.live, ["", "[ ] option 1", "[x] option 2"])
-        XCTAssertNil(frame.cursorOffset)
+        XCTAssertNil(frame.cursorPlacement)
     }
 
     // MARK: - Invariant guards (must never regress)
@@ -427,18 +432,18 @@ final class CodingTUIStatusTests: XCTestCase {
         XCTAssertTrue(shouldCoalesceWithRenderLoop(frame: ComposedFrame(committed: [], live: [], cursorOffset: nil), priority: .normal))
     }
 
-    func testBuilderCursorOffsetPassthroughInvariant() {
+    func testBuilderCursorPlacementPassthroughInvariant() {
         let inputWithCursor = CodingTUIFrameBuilder.Input(
             inputLines: ["> "],
             terminalHeight: 24,
             terminalWidth: 80,
-            cursorOffset: 7
+            cursorPlacement: CursorPlacement(up: 0, offset: 7)
         )
         let frame = CodingTUIFrameBuilder.build(input: inputWithCursor)
-        XCTAssertEqual(frame.cursorOffset, 7)
+        XCTAssertEqual(frame.cursorPlacement, CursorPlacement(up: 0, offset: 7))
     }
 
-    func testPickerPathLiveRegionWithoutCursorOffsetInvariant() {
+    func testPickerPathLiveRegionWithoutCursorPlacementInvariant() {
         let input = CodingTUIFrameBuilder.Input(
             queueLines: ["q1"],
             statusLines: ["S"],
@@ -448,7 +453,7 @@ final class CodingTUIStatusTests: XCTestCase {
         )
         let frame = CodingTUIFrameBuilder.build(input: input)
         XCTAssertFalse(frame.live.isEmpty, "Picker path must produce a live region")
-        XCTAssertNil(frame.cursorOffset, "Picker path must not set cursorOffset")
+        XCTAssertNil(frame.cursorPlacement, "Picker path must not set cursorPlacement")
     }
 
     func testFooterOnlyDividerStabilityInvariant() {

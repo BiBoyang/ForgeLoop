@@ -138,15 +138,20 @@ func makeStatusLines(snapshot: CodingStatusSnapshot) -> [String] {
     return lines
 }
 
-/// 生成输入区 lines。附件提示放在输入行上方，保证输入行始终是最后一行（光标锚点）。
-func makeInputLines(inputLine: String, attachmentCount: Int) -> [String] {
+/// 生成输入区 lines。附件提示放在输入行上方；第一行加 prompt 前缀 "❯ "，
+/// 后续行用 "  " 对齐，保证光标锚点落在输入区最后一行。
+func makeInputLines(inputLines: [String], attachmentCount: Int) -> [String] {
+    guard !inputLines.isEmpty else { return [] }
+    let prompt = "❯ "
+    let continuation = "  "
+    var result: [String] = []
     if attachmentCount > 0 {
-        return [
-            Style.dimmed("  \(attachmentCount) attachment\(attachmentCount == 1 ? "" : "s")"),
-            inputLine,
-        ]
+        result.append(Style.dimmed("  \(attachmentCount) attachment\(attachmentCount == 1 ? "" : "s")"))
     }
-    return [inputLine]
+    for (idx, line) in inputLines.enumerated() {
+        result.append(idx == 0 ? prompt + line : continuation + line)
+    }
+    return result
 }
 
 func makeFooterNoticeLines(_ text: String) -> [String] {
@@ -216,14 +221,21 @@ enum KeyAction: Sendable, Equatable {
     case delete
     case deleteForward
     case submit
+    case insertNewline
     case cancel
     case exit
     case historyPrev
     case historyNext
     case moveLeft
     case moveRight
-    case moveToStart
-    case moveToEnd
+    case moveUp
+    case moveDown
+    case moveToLineStart
+    case moveToLineEnd
+    case moveToBufferStart
+    case moveToBufferEnd
+    case killToLineStart
+    case killToLineEnd
     case paste(String)
     case ignore
 }
@@ -249,8 +261,29 @@ extension KeyEvent {
     func toAction() -> KeyAction {
         switch key {
         case .character(let c):
-            if modifiers.contains(.ctrl), c == "c" || c == "C" {
-                return .exit
+            if modifiers.contains(.ctrl) {
+                switch c {
+                case "c", "C":
+                    return .exit
+                case "a", "A":
+                    return .moveToLineStart
+                case "e", "E":
+                    return .moveToLineEnd
+                case "u", "U":
+                    return .killToLineStart
+                case "k", "K":
+                    return .killToLineEnd
+                case "p", "P":
+                    return .historyPrev
+                case "n", "N":
+                    return .historyNext
+                case "o", "O":
+                    return .insertNewline
+                case "j", "J":
+                    return .submit
+                default:
+                    break
+                }
             }
             return .insert(c)
         case .backspace:
@@ -258,21 +291,21 @@ extension KeyEvent {
         case .delete:
             return .deleteForward
         case .enter:
-            return .submit
+            return .insertNewline
         case .escape:
             return .cancel
         case .up:
-            return .historyPrev
+            return .moveUp
         case .down:
-            return .historyNext
+            return .moveDown
         case .left:
             return .moveLeft
         case .right:
             return .moveRight
         case .home:
-            return .moveToStart
+            return .moveToLineStart
         case .end:
-            return .moveToEnd
+            return .moveToLineEnd
         case .paste(let text):
             return .paste(text)
         default:
@@ -285,14 +318,14 @@ extension KeyEvent {
 private struct FooterRenderState {
     let inputLines: [String]
     let frame: ComposedFrame
-    let cursorOffset: Int?
+    let cursorPlacement: CursorPlacement?
 }
 
 func shouldCoalesceWithRenderLoop(
     frame: ComposedFrame,
     priority: RenderLoop.Priority
 ) -> Bool {
-    priority == .normal && frame.live.isEmpty && frame.cursorOffset == nil
+    priority == .normal && frame.live.isEmpty && frame.cursorOffset == nil && frame.cursorPlacement == nil
 }
 
 @MainActor
@@ -332,7 +365,7 @@ func runCodingTUIInternal(
     var appendModeActive = false
     var transcriptAppendState = StreamingTranscriptAppendState()
 
-    var inputState = TextInputState()
+    var inputState = MultiLineInputState()
     var inputHistory = PromptHistory()
     var activeModelPicker: ListPickerState?
     var queueLines: [String] = []
@@ -377,11 +410,18 @@ func runCodingTUIInternal(
                 terminalWidth: config.terminalWidth,
                 showHeader: config.showHeader
             ))
-            return FooterRenderState(inputLines: inputLines, frame: frame, cursorOffset: nil)
+            return FooterRenderState(inputLines: inputLines, frame: frame, cursorPlacement: nil)
         }
 
-        let inputRender = inputState.render(prefix: "❯ ", totalWidth: config.terminalWidth)
-        let inputLines = makeInputLines(inputLine: inputRender.line, attachmentCount: attachmentStore.count)
+        // Soft-wrap aware viewport for moveUp/Down. The prompt "❯ " reserves
+        // 2 visible cells on the first row, so usable wrap width is terminalWidth - 2.
+        let viewportWidth = max(1, config.terminalWidth - 2)
+        if inputState.viewport?.width != viewportWidth {
+            inputState.setViewport(Viewport(width: viewportWidth))
+        }
+
+        let inputRender = inputState.render()
+        let inputLines = makeInputLines(inputLines: inputRender.lines, attachmentCount: attachmentStore.count)
         let frame = CodingTUIFrameBuilder.build(input: .init(
             queueLines: queueLines,
             statusLines: (activeFooterNotice?.lines ?? []) + statusLines,
@@ -389,9 +429,9 @@ func runCodingTUIInternal(
             terminalHeight: config.terminalHeight,
             terminalWidth: config.terminalWidth,
             showHeader: config.showHeader,
-            cursorOffset: inputRender.cursorOffset
+            cursorPlacement: inputRender.cursor
         ))
-        return FooterRenderState(inputLines: inputLines, frame: frame, cursorOffset: inputRender.cursorOffset)
+        return FooterRenderState(inputLines: inputLines, frame: frame, cursorPlacement: inputRender.cursor)
     }
 
     func renderFrame(priority: RenderLoop.Priority = .normal) {
@@ -587,17 +627,17 @@ func runCodingTUIInternal(
 
         if var modelPicker = activeModelPicker {
             switch action {
-            case .historyPrev:
+            case .historyPrev, .moveUp:
                 _ = modelPicker.handle(.moveUp)
                 activeModelPicker = modelPicker
                 renderFrame(priority: .immediate)
                 continue
-            case .historyNext:
+            case .historyNext, .moveDown:
                 _ = modelPicker.handle(.moveDown)
                 activeModelPicker = modelPicker
                 renderFrame(priority: .immediate)
                 continue
-            case .submit:
+            case .submit, .insertNewline:
                 let outcome = modelPicker.handle(.confirm)
                 activeModelPicker = nil
                 if case .confirmed(let item) = outcome {
@@ -647,7 +687,13 @@ func runCodingTUIInternal(
             inputState.handle(.deleteForward)
             renderFrame(priority: .immediate)
 
-        case .submit:
+        case .submit, .insertNewline:
+            if action == .insertNewline && !agent.state.isStreaming {
+                inputState.handle(.insertNewline)
+                renderFrame(priority: .immediate)
+                break
+            }
+
             let submittedText = inputState.text
             let trimmed = submittedText.trimmingCharacters(in: .whitespacesAndNewlines)
             let hasAttachments = !attachmentStore.isEmpty
@@ -753,16 +799,52 @@ func runCodingTUIInternal(
             inputState.handle(.moveRight)
             renderFrame(priority: .immediate)
 
-        case .moveToStart:
+        case .moveUp:
             activeFooterNotice = nil
             didCompactRecently = false
-            inputState.handle(.moveToStart)
+            inputState.handle(.moveUp)
             renderFrame(priority: .immediate)
 
-        case .moveToEnd:
+        case .moveDown:
             activeFooterNotice = nil
             didCompactRecently = false
-            inputState.handle(.moveToEnd)
+            inputState.handle(.moveDown)
+            renderFrame(priority: .immediate)
+
+        case .moveToLineStart:
+            activeFooterNotice = nil
+            didCompactRecently = false
+            inputState.handle(.moveToLineStart)
+            renderFrame(priority: .immediate)
+
+        case .moveToLineEnd:
+            activeFooterNotice = nil
+            didCompactRecently = false
+            inputState.handle(.moveToLineEnd)
+            renderFrame(priority: .immediate)
+
+        case .moveToBufferStart:
+            activeFooterNotice = nil
+            didCompactRecently = false
+            inputState.handle(.moveToBufferStart)
+            renderFrame(priority: .immediate)
+
+        case .moveToBufferEnd:
+            activeFooterNotice = nil
+            didCompactRecently = false
+            inputState.handle(.moveToBufferEnd)
+            renderFrame(priority: .immediate)
+
+        case .killToLineStart:
+            activeFooterNotice = nil
+            didCompactRecently = false
+            inputState.handle(.killToLineStart)
+            renderFrame(priority: .immediate)
+
+        case .killToLineEnd:
+            activeFooterNotice = nil
+            didCompactRecently = false
+            inputState.handle(.killToLineEnd)
             renderFrame(priority: .immediate)
 
         case .paste(let text):

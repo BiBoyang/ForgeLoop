@@ -18,7 +18,7 @@ enum CodingTUIFrameBuilder {
         let terminalHeight: Int
         let terminalWidth: Int
         let showHeader: Bool
-        let cursorOffset: Int?
+        let cursorPlacement: CursorPlacement?
 
         init(
             headerLines: [String] = [],
@@ -30,7 +30,7 @@ enum CodingTUIFrameBuilder {
             terminalHeight: Int = 24,
             terminalWidth: Int = 80,
             showHeader: Bool = true,
-            cursorOffset: Int? = nil
+            cursorPlacement: CursorPlacement? = nil
         ) {
             self.headerLines = headerLines
             self.transcriptLines = transcriptLines
@@ -41,7 +41,7 @@ enum CodingTUIFrameBuilder {
             self.terminalHeight = terminalHeight
             self.terminalWidth = terminalWidth
             self.showHeader = showHeader
-            self.cursorOffset = cursorOffset
+            self.cursorPlacement = cursorPlacement
         }
     }
 
@@ -62,10 +62,16 @@ enum CodingTUIFrameBuilder {
             terminalWidth: input.terminalWidth,
             showHeader: input.showHeader
         )
+        if let cursorPlacement = input.cursorPlacement {
+            return renderer.render(
+                layout: layout,
+                config: config,
+                cursorPlacement: cursorPlacement
+            )
+        }
         return renderer.render(
             layout: layout,
-            config: config,
-            cursorOffset: input.cursorOffset
+            config: config
         )
     }
 }

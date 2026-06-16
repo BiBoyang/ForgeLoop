@@ -175,6 +175,7 @@ final class ScreenLayoutIntegrationTests: XCTestCase {
     /// byte-identical assertion will fail — catching the regression at compile/test time.
     func testBuilderDelegatesToLibraryRendererWithoutAlteringOutput() {
         let renderer = ScreenLayoutRenderer()
+        let cursor = CursorPlacement(up: 0, offset: 3)
         let input = CodingTUIFrameBuilder.Input(
             headerLines: ["H"],
             transcriptLines: ["T1", "T2"],
@@ -184,7 +185,7 @@ final class ScreenLayoutIntegrationTests: XCTestCase {
             terminalHeight: 24,
             terminalWidth: 80,
             showHeader: true,
-            cursorOffset: 3
+            cursorPlacement: cursor
         )
 
         // Path A: CLI composition (production code path).
@@ -204,7 +205,7 @@ final class ScreenLayoutIntegrationTests: XCTestCase {
             terminalWidth: input.terminalWidth,
             showHeader: input.showHeader
         )
-        let directFrame = renderer.render(layout: layout, config: config, cursorOffset: 3)
+        let directFrame = renderer.render(layout: layout, config: config, cursorPlacement: cursor)
 
         // Composition proof: builder must not alter any aspect of library output.
         XCTAssertEqual(
@@ -218,9 +219,9 @@ final class ScreenLayoutIntegrationTests: XCTestCase {
             "Builder must not mutate live region — must delegate to library"
         )
         XCTAssertEqual(
-            frame.cursorOffset,
-            directFrame.cursorOffset,
-            "Builder must preserve cursor offset through to library"
+            frame.cursorPlacement,
+            directFrame.cursorPlacement,
+            "Builder must preserve cursor placement through to library"
         )
         XCTAssertEqual(
             frame.committed + frame.live,
