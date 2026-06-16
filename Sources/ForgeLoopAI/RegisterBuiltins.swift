@@ -28,5 +28,12 @@ public func registerBuiltins(
         registered.append(completions.api)
     }
 
+    let anthropicKey = environment["ANTHROPIC_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let apiKey = anthropicKey, !apiKey.isEmpty {
+        let anthropic = AnthropicProvider(defaultAPIKey: apiKey)
+        await APIRegistry.shared.register(anthropic, sourceId: sourceId)
+        registered.append(anthropic.api)
+    }
+
     return registered
 }
