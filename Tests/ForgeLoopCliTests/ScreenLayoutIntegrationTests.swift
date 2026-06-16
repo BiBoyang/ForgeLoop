@@ -156,4 +156,99 @@ final class ScreenLayoutIntegrationTests: XCTestCase {
             "Immediate priority must always block coalescing regardless of frame content"
         )
     }
+
+    // MARK: - CR-02 composition proof: CLI composes TUI library, not reimplements
+
+    /// Proves that ``CodingTUIFrameBuilder`` delegates entirely to
+    /// ``ScreenLayoutRenderer`` and does not inject app-local rendering logic.
+    ///
+    /// ## Proof strategy
+    /// 1. Build a frame through the CLI composition path (`CodingTUIFrameBuilder.build`).
+    /// 2. Build an equivalent frame directly through the library (`ScreenLayoutRenderer.render`).
+    /// 3. Assert byte-identical output — any divergence means app-local logic has leaked in.
+    /// 4. Assert the coalescing contract still holds with the builder output.
+    /// 5. Assert the visual-order contract (header < transcript < queue < status < input).
+    ///
+    /// ## Regression guard (回滚防线)
+    /// If someone reintroduces a local `TUIRunner`, `LayoutRenderer`, or `KeyEvent`
+    /// alternative and subtly alters frame construction inside the builder, the
+    /// byte-identical assertion will fail — catching the regression at compile/test time.
+    func testBuilderDelegatesToLibraryRendererWithoutAlteringOutput() {
+        let renderer = ScreenLayoutRenderer()
+        let input = CodingTUIFrameBuilder.Input(
+            headerLines: ["H"],
+            transcriptLines: ["T1", "T2"],
+            queueLines: ["Q"],
+            statusLines: ["S"],
+            inputLines: ["> prompt"],
+            terminalHeight: 24,
+            terminalWidth: 80,
+            showHeader: true,
+            cursorOffset: 3
+        )
+
+        // Path A: CLI composition (production code path).
+        let frame = CodingTUIFrameBuilder.build(input: input, renderer: renderer)
+
+        // Path B: direct library call (baseline).
+        let layout = ScreenLayout(
+            header: input.headerLines,
+            transcript: input.transcriptLines,
+            queue: input.queueLines,
+            status: input.statusLines,
+            input: input.inputLines,
+            pinnedTranscriptRange: input.pinnedTranscriptRange
+        )
+        let config = ScreenLayoutConfig(
+            terminalHeight: input.terminalHeight,
+            terminalWidth: input.terminalWidth,
+            showHeader: input.showHeader
+        )
+        let directFrame = renderer.render(layout: layout, config: config, cursorOffset: 3)
+
+        // Composition proof: builder must not alter any aspect of library output.
+        XCTAssertEqual(
+            frame.committed,
+            directFrame.committed,
+            "Builder must not mutate committed region — must delegate to library"
+        )
+        XCTAssertEqual(
+            frame.live,
+            directFrame.live,
+            "Builder must not mutate live region — must delegate to library"
+        )
+        XCTAssertEqual(
+            frame.cursorOffset,
+            directFrame.cursorOffset,
+            "Builder must preserve cursor offset through to library"
+        )
+        XCTAssertEqual(
+            frame.committed + frame.live,
+            directFrame.committed + directFrame.live,
+            "Full visual reconstruction must be identical between builder and library"
+        )
+
+        // Regression guard: coalescing contract must hold with builder output.
+        XCTAssertFalse(
+            shouldCoalesceWithRenderLoop(frame: frame, priority: .normal),
+            "Live content via builder path must block coalescing (library contract)"
+        )
+
+        // Regression guard: visual-order contract must hold with builder output.
+        let flat = frame.committed + frame.live
+        let hIdx = flat.firstIndex(of: "H")
+        let tIdx = flat.firstIndex(of: "T1")
+        let qIdx = flat.firstIndex(of: "Q")
+        let sIdx = flat.firstIndex(of: "S")
+        let iIdx = flat.firstIndex(of: "> prompt")
+        XCTAssertNotNil(hIdx, "Header region must be present in composition path")
+        XCTAssertNotNil(tIdx, "Transcript region must be present in composition path")
+        XCTAssertNotNil(qIdx, "Queue region must be present in composition path")
+        XCTAssertNotNil(sIdx, "Status region must be present in composition path")
+        XCTAssertNotNil(iIdx, "Input region must be present in composition path")
+        XCTAssertLessThan(hIdx!, tIdx!, "Order contract: header < transcript")
+        XCTAssertLessThan(tIdx!, qIdx!, "Order contract: transcript < queue")
+        XCTAssertLessThan(qIdx!, sIdx!, "Order contract: queue < status")
+        XCTAssertLessThan(sIdx!, iIdx!, "Order contract: status < input (live)")
+    }
 }

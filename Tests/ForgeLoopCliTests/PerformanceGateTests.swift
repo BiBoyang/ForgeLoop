@@ -60,6 +60,10 @@ final class PerformanceGateTests: XCTestCase {
     /// D2 更新：基于 warm-up + p50，典型值 1.8~2.0ms（远低于原 10ms 保守值）。
     private let baselineRenderLargeFirstMillis: Double = 5.0
 
+    /// render-medium-rapid-refresh 基线（单位：微秒）。
+    /// 典型值 430~450μs；diff 路径比首帧略慢（首帧 ~360μs）。
+    private let baselineRenderMediumRapidRefreshMicros: Double = 600.0
+
     /// transcript-apply 基线（单位：微秒）。
     /// D2 更新：基于 warm-up + p50，典型值 15~18μs。
     private let baselineTranscriptApplyMicros: Double = 25.0
@@ -97,6 +101,7 @@ final class PerformanceGateTests: XCTestCase {
     }
 
     /// 格式化性能失败消息，包含观测值、阈值、偏差百分比、建议动作。
+    /// F1 增强：失败信息必须直接回答——观测值、阈值、偏差百分比、推荐动作。
     private func gateFailureMessage(
         label: String,
         observed: Double,
@@ -104,12 +109,22 @@ final class PerformanceGateTests: XCTestCase {
         unit: String
     ) -> String {
         let deviation = ((observed - threshold) / threshold) * 100.0
-        var msg = "\(label) exceeded gate: observed=\(String(format: "%.2f", observed))\(unit)"
-        msg += ", threshold=\(String(format: "%.2f", threshold))\(unit)"
-        msg += ", deviation=\(String(format: "+%.1f", deviation))%"
-        if deviation > 0 {
-            msg += " | Suggested action: re-run 3 times; if consistently failing, check environment load or update baseline with data."
+        let severity: String
+        if deviation > 50 {
+            severity = "SEVERE"
+        } else if deviation > 20 {
+            severity = "MODERATE"
+        } else if deviation > 10 {
+            severity = "MINOR"
+        } else {
+            severity = "MARGINAL"
         }
+        var msg = "[\(severity)] \(label) exceeded gate"
+        msg += " | observed=\(String(format: "%.2f", observed))\(unit)"
+        msg += " | threshold=\(String(format: "%.2f", threshold))\(unit)"
+        msg += " | deviation=\(String(format: "+%.1f", deviation))%"
+        msg += " | action: re-run 3 times; if 2+/3 fail, check environment load or file regression issue."
+        msg += " | docs: see docs/perf-regression-policy.md for severity table and baseline update rules."
         return msg
     }
 
@@ -191,6 +206,26 @@ final class PerformanceGateTests: XCTestCase {
         XCTAssertLessThan(
             timing.medianMillis, threshold,
             gateFailureMessage(label: "render-large-first", observed: timing.medianMillis, threshold: threshold, unit: "ms")
+        )
+    }
+
+    func testGate_RenderMediumRapidRefresh() {
+        let tui = TUI(terminalWidth: 200, terminalHeight: 100)
+        var frame = makeMediumFrame()
+        // Warm-up to establish retained state
+        for _ in 0..<warmUpIterations {
+            tui.requestRender(lines: frame)
+        }
+        let timing = measureStable(iterations: gateIterations) {
+            var f = frame
+            f[4] = "Line 0: Rapid refresh update"
+            f[frame.count - 2] = "Line 19: Rapid refresh update"
+            tui.requestRender(lines: f)
+        }
+        let threshold = baselineRenderMediumRapidRefreshMicros * thresholdFactor
+        XCTAssertLessThan(
+            timing.medianMicros, threshold,
+            gateFailureMessage(label: "render-medium-rapid-refresh", observed: timing.medianMicros, threshold: threshold, unit: "μs")
         )
     }
 
