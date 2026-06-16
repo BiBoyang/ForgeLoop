@@ -7,10 +7,10 @@ import ForgeLoopTUI
 
 @MainActor
 final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    private let hybridAdapter = HybridRenderAdapter()
     private let eventAdapter = AppKitEventAdapter()
     private let keyResolver = KeyResolver<KeyAction>(registry: makeKeybindings())
     private let sessionStore = SessionStore()
+    private let modelStore = ModelStore()
 
     private var window: NSWindow?
     private var titleLabel: NSTextField?
@@ -20,12 +20,34 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var keyHintLabel: NSTextField?
     private var keyMonitor: Any?
 
+    private var modelPicker: NSPopUpButton?
+    private var modelPickerIDs: [String] = []
+
     private var inputState = MultiLineInputState(viewport: Viewport(width: 60))
     private var transcript: TranscriptRenderer!
     private var agent: Agent?
     private var currentBlockID: String?
 
+    private var messageSegments: [MessageSegment] = []
+
     private let cwd = FileManager.default.currentDirectoryPath
+
+    // MARK: - Message Segment Types
+
+    enum MessageSegmentType {
+        case user
+        case assistant
+        case toolHeader
+        case toolResult(Bool)
+        case thinking
+        case error
+        case notification
+    }
+
+    struct MessageSegment {
+        let lines: [String]
+        let type: MessageSegmentType
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupWindow()
@@ -46,6 +68,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         agent.state.model = switchedModel(from: agent.state.model, to: last.modelID)
                     }
                 }
+
+                self.populateModelPicker()
 
                 _ = agent.subscribe { @MainActor [weak self] event, _ in
                     guard let self else { return }
@@ -111,6 +135,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let title = NSTextField(labelWithString: "ForgeLoop")
         title.font = NSFont.systemFont(ofSize: 24, weight: .semibold)
 
+        let modelPicker = NSPopUpButton()
+        modelPicker.pullsDown = false
+        modelPicker.target = self
+        modelPicker.action = #selector(modelPickerChanged(_:))
+
+        let headerBar = NSStackView()
+        headerBar.orientation = .horizontal
+        headerBar.spacing = 12
+        headerBar.addArrangedSubview(title)
+        headerBar.addArrangedSubview(modelPicker)
+
         let status = NSTextField(labelWithString: "● ready")
         status.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 
@@ -145,7 +180,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hints.font = NSFont.systemFont(ofSize: 11, weight: .regular)
         hints.textColor = .secondaryLabelColor
 
-        root.addArrangedSubview(title)
+        root.addArrangedSubview(headerBar)
         root.addArrangedSubview(status)
         root.addArrangedSubview(transcriptScroll)
         root.addArrangedSubview(inputScroll)
@@ -171,6 +206,35 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         self.transcriptView = transcript
         self.inputView = input
         self.keyHintLabel = hints
+        self.modelPicker = modelPicker
+    }
+
+    // MARK: - Model Picker
+
+    private func populateModelPicker() {
+        guard let agent, let picker = modelPicker else { return }
+        let items = suggestedModelPickerItems(for: agent.state.model)
+        picker.removeAllItems()
+        modelPickerIDs = items.map { $0.id }
+        for item in items {
+            picker.addItem(withTitle: item.title)
+        }
+        if let index = items.firstIndex(where: { $0.id == agent.state.model.id }) {
+            picker.selectItem(at: index)
+        }
+    }
+
+    @objc private func modelPickerChanged(_ sender: NSPopUpButton) {
+        guard let agent else { return }
+        let index = sender.indexOfSelectedItem
+        guard index >= 0, index < modelPickerIDs.count else { return }
+        let modelID = modelPickerIDs[index]
+        guard modelID != agent.state.model.id else { return }
+        let newModel = switchedModel(from: agent.state.model, to: modelID)
+        modelStore.save(newModel)
+        agent.state.model = newModel
+        populateModelPicker()
+        render()
     }
 
     // MARK: - Input
@@ -334,31 +398,130 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func render() {
         guard let agent else { return }
-        let state = HybridRenderState(
-            transcriptLines: transcript.transcriptLines,
-            statusLines: [agent.state.isStreaming ? "● generating" : "● ready"],
-            inputLines: inputState.lines,
-            panelMeta: PanelMeta(
-                title: "ForgeLoop",
-                summary: "\(agent.state.messages.count) messages",
-                statusBadge: agent.state.isStreaming ? "Streaming" : "Ready",
-                isActive: agent.state.isStreaming
-            )
-        )
-        let panel = hybridAdapter.appKitProjection(of: state)
 
-        titleLabel?.stringValue = panel.meta.title
-        statusLabel?.stringValue = panel.statusLines.joined(separator: " | ")
-        transcriptView?.string = panel.transcriptLines.joined(separator: "\n")
+        // Status bar: phase | model | message count | pending tools.
+        var parts: [String] = []
+        parts.append(agent.state.isStreaming ? "● generating" : "● ready")
+        parts.append("model: \(agent.state.model.id)")
+        parts.append("\(agent.state.messages.count) messages")
+        if let pending = transcript?.pendingToolCount, pending > 0 {
+            parts.append("\(pending) tools pending")
+        }
+        statusLabel?.stringValue = parts.joined(separator: "  |  ")
+
+        // Colored transcript.
+        messageSegments = buildMessageSegments(from: transcript?.transcriptLines ?? [])
+        let attributedText = buildAttributedString(from: messageSegments)
+        transcriptView?.textStorage?.setAttributedString(attributedText)
         transcriptView?.scrollToEndOfDocument(nil)
-        inputView?.string = panel.inputLines.joined(separator: "\n")
+
+        inputView?.string = inputState.lines.joined(separator: "\n")
         inputView?.scrollToEndOfDocument(nil)
 
-        if panel.inputFocused {
-            keyHintLabel?.stringValue = "Ctrl+J submit | Enter newline | Esc abort | Ctrl+C quit"
-        } else {
-            keyHintLabel?.stringValue = "Ctrl+J submit | Enter newline | Esc abort | Ctrl+C quit"
+        titleLabel?.stringValue = "ForgeLoop"
+        modelPicker?.isEnabled = !agent.state.isStreaming
+    }
+
+    private func buildMessageSegments(from lines: [String]) -> [MessageSegment] {
+        var segments: [MessageSegment] = []
+        for line in lines {
+            let stripped = ansiStripped(line)
+            let type: MessageSegmentType
+            if stripped.hasPrefix("❯ ") {
+                type = .user
+            } else if stripped.hasPrefix("💭 ") {
+                type = .thinking
+            } else if stripped.hasPrefix("● ") || stripped.hasPrefix("⎿ running") {
+                type = .toolHeader
+            } else if stripped.hasPrefix("⎿ done") {
+                type = .toolResult(true)
+            } else if stripped.hasPrefix("⎿ failed") {
+                type = .toolResult(false)
+            } else if stripped.hasPrefix("▸ ") {
+                type = .notification
+            } else if stripped.hasPrefix("[error]") || stripped.hasPrefix("[cancelled]") {
+                type = .error
+            } else {
+                type = .assistant
+            }
+            segments.append(MessageSegment(lines: [stripped], type: type))
         }
+        return segments
+    }
+
+    private func buildAttributedString(from segments: [MessageSegment]) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        let baseFont = transcriptView?.font ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        let italicFont = NSFontManager.shared.convert(baseFont, toHaveTrait: .italicFontMask)
+
+        for (index, segment) in segments.enumerated() {
+            if index > 0 {
+                result.append(NSAttributedString(string: "\n"))
+            }
+            let text = segment.lines.joined(separator: "\n")
+            let color = colorForSegmentType(segment.type)
+            let font: NSFont
+            switch segment.type {
+            case .thinking:
+                font = italicFont
+            default:
+                font = baseFont
+            }
+            let attributes: [NSAttributedString.Key: Any] = [
+                .foregroundColor: color,
+                .font: font,
+            ]
+            result.append(NSAttributedString(string: text, attributes: attributes))
+        }
+        return result
+    }
+
+    private func colorForSegmentType(_ type: MessageSegmentType) -> NSColor {
+        switch type {
+        case .user:
+            return .systemBlue
+        case .assistant:
+            return .labelColor
+        case .toolHeader:
+            return .systemOrange
+        case .toolResult(let success):
+            return success ? .systemGreen : .systemRed
+        case .thinking:
+            return .secondaryLabelColor
+        case .error:
+            return .systemRed
+        case .notification:
+            return .secondaryLabelColor
+        }
+    }
+
+    private func ansiStripped(_ text: String) -> String {
+        var result = ""
+        var index = text.startIndex
+        while index < text.endIndex {
+            let char = text[index]
+            if char == "\u{001B}" {
+                let next = text.index(after: index)
+                if next < text.endIndex, text[next] == "[" {
+                    var paramIndex = text.index(after: next)
+                    while paramIndex < text.endIndex {
+                        let paramChar = text[paramIndex]
+                        if (0x40...0x7E).contains(paramChar.asciiValue ?? 0) {
+                            index = text.index(after: paramIndex)
+                            break
+                        }
+                        paramIndex = text.index(after: paramIndex)
+                    }
+                    if paramIndex >= text.endIndex {
+                        break
+                    }
+                    continue
+                }
+            }
+            result.append(char)
+            index = text.index(after: index)
+        }
+        return result
     }
 
     // MARK: - Errors

@@ -3,7 +3,7 @@ import ForgeLoopAI
 import ForgeLoopAgent
 import ForgeLoopTUI
 
-func suggestedModelPickerItems(for currentModel: Model) -> [ListPickerItem] {
+public func suggestedModelPickerItems(for currentModel: Model) -> [ListPickerItem] {
     let preferredIDs: [String]
     let normalizedBaseURL = currentModel.baseUrl.lowercased()
     let normalizedID = currentModel.id.lowercased()
