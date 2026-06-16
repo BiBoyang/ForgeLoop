@@ -5,33 +5,36 @@ import ForgeLoopTUI
 
 // MARK: - Core Adapter (New)
 
-/// 将 `AgentEvent` 单点转换为 `CoreRenderEvent`；所有 Agent->TUI 边界收敛于此。
-func toCoreRenderEvent(_ event: AgentEvent) -> CoreRenderEvent? {
+/// 将 `AgentEvent` 单点转换为 `CoreRenderEvent` 序列；所有 Agent->TUI 边界收敛于此。
+///
+/// - Parameter event: 待转换的 Agent 事件。
+/// - Parameter blockID: 当前 assistant message 的 session-scoped block ID。
+///   由 CodingTUI 在 `.messageStart(.assistant)` 时生成，并贯穿同一次回复的
+///   `.messageUpdate` / `.messageEnd`。
+func toCoreRenderEvent(_ event: AgentEvent, blockID: String = "__assistant") -> [CoreRenderEvent] {
     switch event {
     case .agentStart:
-        return .notification(text: "agent started")
+        return [.notification(text: "agent started")]
     case .agentEnd:
-        return .notification(text: "agent ended")
+        return [.notification(text: "agent ended")]
     case .turnStart, .turnEnd:
-        return nil
+        return []
     case .messageStart(let message):
-        return adaptMessageStart(message)
+        return adaptMessageStart(message, blockID: blockID).map { [$0] } ?? []
     case .messageUpdate(let assistant, _):
-        let (text, thinking) = extractAssistantContent(assistant)
-        let lines = formatAssistantLines(text: text, thinking: thinking)
-        return .blockUpdate(id: "__assistant", lines: lines)
+        return adaptAssistantUpdate(assistant, blockID: blockID, isFinal: false)
     case .messageEnd(let message):
-        return adaptMessageEnd(message)
+        return adaptMessageEnd(message, blockID: blockID)
     case .toolExecutionStart(let toolCallId, let toolName, let args):
-        return .operationStart(
+        return [.operationStart(
             id: toolCallId,
             header: "● \(toolName)(\(args))",
             status: "⎿ running..."
-        )
+        )]
     case .toolExecutionEnd(let toolCallId, _, let isError, let summary):
-        return .operationEnd(id: toolCallId, isError: isError, result: summary)
+        return [.operationEnd(id: toolCallId, isError: isError, result: summary)]
     case .contextCompacted:
-        return nil
+        return []
     }
 }
 
@@ -72,28 +75,52 @@ func toRenderEvent(_ event: AgentEvent) -> RenderEvent? {
 
 // MARK: - Private Helpers
 
-private func adaptMessageStart(_ message: Message) -> CoreRenderEvent? {
+private func adaptMessageStart(_ message: Message, blockID: String) -> CoreRenderEvent? {
     switch message {
     case .user(let user):
         return .insert(lines: prefixedLogicalLines(prefix: Style.user("❯ "), text: user.text) + [""])
     case .assistant:
-        return .blockStart(id: "__assistant")
+        return .blockStart(id: blockID)
     case .tool:
         return nil
     }
 }
 
-private func adaptMessageEnd(_ message: Message) -> CoreRenderEvent? {
+private func adaptAssistantUpdate(_ assistant: AssistantMessage, blockID: String, isFinal: Bool) -> [CoreRenderEvent] {
+    var events: [CoreRenderEvent] = []
+    let (text, thinking) = extractAssistantContent(assistant)
+
+    if let thinking = thinking {
+        events.append(.thinking(content: thinking, isFinal: isFinal))
+    }
+
+    let textLines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    if !textLines.isEmpty {
+        events.append(.blockUpdate(id: blockID, lines: textLines))
+    }
+
+    return events
+}
+
+private func adaptMessageEnd(_ message: Message, blockID: String) -> [CoreRenderEvent] {
     switch message {
     case .user:
-        return nil
+        return []
     case .assistant(let assistant):
+        var events: [CoreRenderEvent] = []
         let (text, thinking) = extractAssistantContent(assistant)
-        let lines = formatAssistantLines(text: text, thinking: thinking)
+
+        // Finalize thinking first so its range is cleaned before blockEnd.
+        if thinking != nil {
+            events.append(.thinking(content: thinking ?? "", isFinal: true))
+        }
+
+        let textLines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let footer = text.isEmpty ? assistant.errorMessage : nil
-        return .blockEnd(id: "__assistant", lines: lines, footer: footer)
+        events.append(.blockEnd(id: blockID, lines: textLines, footer: footer))
+        return events
     case .tool:
-        return nil
+        return []
     }
 }
 

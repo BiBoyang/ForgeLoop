@@ -12,7 +12,7 @@ final class StreamingTranscriptIntegrationTests: XCTestCase {
         var emittedChunks: [[String]] = []
 
         func apply(_ event: AgentEvent) {
-            if let coreEvent = toCoreRenderEvent(event) {
+            for coreEvent in toCoreRenderEvent(event) {
                 renderer.applyCore(coreEvent)
             }
             let chunk = appendState.consume(

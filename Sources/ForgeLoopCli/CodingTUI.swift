@@ -364,6 +364,7 @@ func runCodingTUIInternal(
     var hasPrintedStaticHeader = false
     var appendModeActive = false
     var transcriptAppendState = StreamingTranscriptAppendState()
+    var currentAssistantBlockID: String? = nil
 
     var inputState = MultiLineInputState()
     var inputHistory = PromptHistory()
@@ -540,7 +541,17 @@ func runCodingTUIInternal(
                 }
             }()
 
-            if let coreEvent = toCoreRenderEvent(event) {
+            switch event {
+            case .messageStart(message: .assistant):
+                currentAssistantBlockID = UUID().uuidString
+            case .messageEnd(message: .assistant):
+                currentAssistantBlockID = nil
+            default:
+                break
+            }
+
+            let blockID = currentAssistantBlockID ?? "__assistant"
+            for coreEvent in toCoreRenderEvent(event, blockID: blockID) {
                 renderer.applyCore(coreEvent)
             }
 
@@ -733,6 +744,10 @@ func runCodingTUIInternal(
                 activeFooterNotice = nil
                 didCompactRecently = false
                 agent.abort()
+                if let blockID = currentAssistantBlockID {
+                    renderer.applyCore(.blockCancel(id: blockID))
+                    currentAssistantBlockID = nil
+                }
                 inputState.handle(.clear)
                 inputHistory.reset()
                 renderFrame(priority: .immediate)

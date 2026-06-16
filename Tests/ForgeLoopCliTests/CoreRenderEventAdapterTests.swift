@@ -126,7 +126,8 @@ final class CoreRenderEventAdapterTests: XCTestCase {
             ],
             coreEvents: [
                 .blockStart(id: "__assistant"),
-                .blockEnd(id: "__assistant", lines: ["💭 I think", "result"], footer: nil),
+                .thinking(content: "I think", isFinal: true),
+                .blockEnd(id: "__assistant", lines: ["result"], footer: nil),
             ]
         )
     }
@@ -140,7 +141,8 @@ final class CoreRenderEventAdapterTests: XCTestCase {
             ],
             coreEvents: [
                 .blockStart(id: "__assistant"),
-                .blockEnd(id: "__assistant", lines: ["💭 line one …", "ok"], footer: nil),
+                .thinking(content: thinking, isFinal: true),
+                .blockEnd(id: "__assistant", lines: ["ok"], footer: nil),
             ]
         )
     }
@@ -250,8 +252,10 @@ final class CoreRenderEventAdapterTests: XCTestCase {
             ],
             coreEvents: [
                 .blockStart(id: "__assistant"),
-                .blockUpdate(id: "__assistant", lines: ["💭 reason", "answer"]),
-                .blockEnd(id: "__assistant", lines: ["💭 reason", "answer"], footer: nil),
+                .thinking(content: "reason", isFinal: false),
+                .blockUpdate(id: "__assistant", lines: ["answer"]),
+                .thinking(content: "reason", isFinal: true),
+                .blockEnd(id: "__assistant", lines: ["answer"], footer: nil),
             ]
         )
     }
@@ -270,7 +274,7 @@ private func assertEquivalent(agentEvents: [AgentEvent], coreEvents: [CoreRender
 private func render(agentEvents: [AgentEvent]) -> [String] {
     let renderer = TranscriptRenderer()
     for event in agentEvents {
-        if let core = toCoreRenderEvent(event) {
+        for core in toCoreRenderEvent(event) {
             renderer.applyCore(core)
         }
     }
