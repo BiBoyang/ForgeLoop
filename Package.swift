@@ -11,6 +11,7 @@ let package = Package(
         .library(name: "ForgeLoopAgent", targets: ["ForgeLoopAgent"]),
         .library(name: "ForgeLoopCli", targets: ["ForgeLoopCli"]),
         .executable(name: "forgeloop", targets: ["forgeloop"]),
+        .executable(name: "ForgeLoopApp", targets: ["ForgeLoopApp"]),
     ],
     dependencies: [
         .package(path: "../ForgeLoopTUI"),
@@ -38,6 +39,16 @@ let package = Package(
             name: "forgeloop",
             dependencies: ["ForgeLoopCli"],
             path: "Sources/forgeloop"
+        ),
+        .executableTarget(
+            name: "ForgeLoopApp",
+            dependencies: [
+                "ForgeLoopCli",
+                "ForgeLoopAgent",
+                "ForgeLoopAI",
+                .product(name: "ForgeLoopTUI", package: "ForgeLoopTUI"),
+            ],
+            path: "Sources/ForgeLoopApp"
         ),
         .testTarget(
             name: "ForgeLoopAITests",

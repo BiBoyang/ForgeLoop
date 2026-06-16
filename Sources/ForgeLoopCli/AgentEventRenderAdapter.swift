@@ -11,7 +11,7 @@ import ForgeLoopTUI
 /// - Parameter blockID: 当前 assistant message 的 session-scoped block ID。
 ///   由 CodingTUI 在 `.messageStart(.assistant)` 时生成，并贯穿同一次回复的
 ///   `.messageUpdate` / `.messageEnd`。
-func toCoreRenderEvent(_ event: AgentEvent, blockID: String = "__assistant") -> [CoreRenderEvent] {
+public func toCoreRenderEvent(_ event: AgentEvent, blockID: String = "__assistant") -> [CoreRenderEvent] {
     switch event {
     case .agentStart:
         return [.notification(text: "agent started")]

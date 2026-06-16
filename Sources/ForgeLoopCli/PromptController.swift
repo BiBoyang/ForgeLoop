@@ -62,7 +62,7 @@ func makeModelPickerState(currentModel: Model) -> ListPickerState {
     )
 }
 
-func switchedModel(from currentModel: Model, to modelId: String) -> Model {
+public func switchedModel(from currentModel: Model, to modelId: String) -> Model {
     Model(
         id: modelId,
         name: modelId,

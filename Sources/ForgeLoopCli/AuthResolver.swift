@@ -1,14 +1,14 @@
 import Foundation
 import ForgeLoopAI
 
-struct ResolvedAuth: Sendable {
-    let model: Model
+public struct ResolvedAuth: Sendable {
+    public let model: Model
 }
 
-enum AuthError: Error, CustomStringConvertible {
+public enum AuthError: Error, CustomStringConvertible {
     case missingCredentials(provider: String)
 
-    var description: String {
+    public var description: String {
         switch self {
         case .missingCredentials(let provider):
             return "Missing API key for provider '\(provider)'. Run 'forgeloop login' to set credentials."
@@ -24,7 +24,7 @@ enum LoginError: Error, CustomStringConvertible {
     }
 }
 
-func resolveAgentAuth(
+public func resolveAgentAuth(
     modelOverride: String? = nil,
     modelStore: ModelStore = ModelStore(),
     credentialStore: CredentialStore = CredentialStore(),

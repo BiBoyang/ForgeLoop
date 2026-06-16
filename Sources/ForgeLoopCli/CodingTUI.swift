@@ -16,7 +16,7 @@ func labelForModel(_ model: Model) -> String {
     return "\(model.name) (\(model.id))"
 }
 
-func forgeLoopMarkdownRenderOptions() -> MarkdownRenderOptions {
+public func forgeLoopMarkdownRenderOptions() -> MarkdownRenderOptions {
     MarkdownRenderOptions(
         tablePolicy: TableRenderPolicy(
             maxRenderedWidth: 80,
@@ -216,7 +216,7 @@ func resolveFooterNotice(current: FooterNotice?, incoming: FooterNotice) -> Foot
 // MARK: - KeyAction
 
 /// 输入层按键动作抽象，避免 CodingTUI 主循环直接膨胀 KeyEvent 分支。
-enum KeyAction: Sendable, Equatable {
+public enum KeyAction: Sendable, Equatable {
     case insert(Character)
     case delete
     case deleteForward
@@ -256,7 +256,7 @@ func resolveEscapeIntent(isStreaming: Bool, hasRunningBackgroundTasks: Bool) -> 
     return .clearInput
 }
 
-func makeKeybindings() -> KeybindingRegistry<KeyAction> {
+public func makeKeybindings() -> KeybindingRegistry<KeyAction> {
     var registry = KeybindingRegistry<KeyAction>()
     func bind(_ sequence: KeySequence, _ action: KeyAction) {
         do {
