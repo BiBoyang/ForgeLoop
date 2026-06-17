@@ -73,6 +73,11 @@ public enum ProcessRunner {
             )
         }
 
+        // If the handle was already cancelled before we got here, terminate immediately.
+        if cancellation?.isCancelled == true {
+            process.terminate()
+        }
+
         return await withCheckedContinuation { continuation in
             // 超时任务：到时间后 kill 进程（nil 表示无超时）
             let timeoutTask: Task<Void, Never>?

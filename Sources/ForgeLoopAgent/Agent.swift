@@ -23,26 +23,97 @@ public struct AgentOptions: Sendable {
     }
 }
 
+/// Thread-safe holder for Agent configuration that may be mutated after initialization.
+///
+/// Safety invariant: all mutable shared state is protected by `lock`. Accessors copy values
+/// out of the lock, so callers receive a consistent snapshot for the duration of their use.
+private final class LockedAgentConfig: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _apiKeyResolver: (@Sendable (String) async -> String?)?
+    private var _cwd: String
+    private var _toolExecutionMode: ToolExecutionMode
+    private var _backgroundTaskManager: BackgroundTaskManager?
+
+    var apiKeyResolver: (@Sendable (String) async -> String?)? {
+        get { lock.withLock { _apiKeyResolver } }
+        set { lock.withLock { _apiKeyResolver = newValue } }
+    }
+
+    var cwd: String {
+        get { lock.withLock { _cwd } }
+        set { lock.withLock { _cwd = newValue } }
+    }
+
+    var toolExecutionMode: ToolExecutionMode {
+        get { lock.withLock { _toolExecutionMode } }
+        set { lock.withLock { _toolExecutionMode = newValue } }
+    }
+
+    var backgroundTaskManager: BackgroundTaskManager? {
+        get { lock.withLock { _backgroundTaskManager } }
+        set { lock.withLock { _backgroundTaskManager = newValue } }
+    }
+
+    init(
+        apiKeyResolver: (@Sendable (String) async -> String?)?,
+        cwd: String,
+        toolExecutionMode: ToolExecutionMode,
+        backgroundTaskManager: BackgroundTaskManager? = nil
+    ) {
+        self._apiKeyResolver = apiKeyResolver
+        self._cwd = cwd
+        self._toolExecutionMode = toolExecutionMode
+        self._backgroundTaskManager = backgroundTaskManager
+    }
+
+    /// Returns a consistent snapshot of the loop-relevant configuration.
+    func loopSnapshot() -> (
+        apiKeyResolver: (@Sendable (String) async -> String?)?,
+        cwd: String,
+        toolExecutionMode: ToolExecutionMode
+    ) {
+        lock.withLock { (_apiKeyResolver, _cwd, _toolExecutionMode) }
+    }
+}
+
 public final class Agent: @unchecked Sendable {
     public let state: AgentState
     private let streamFn: StreamFn
     private let steeringQueue = PendingMessageQueue()
+    private let config: LockedAgentConfig
 
-    private let lock = NSLock()
-    private var listeners: [(id: UUID, handler: AgentListener)] = []
-    private var activeCancellation: CancellationHandle?
-    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
+    /// `toolExecutor` is set at init time and never reassigned, avoiding races on the executor.
+    public let toolExecutor: ToolExecutor?
 
-    public var apiKeyResolver: (@Sendable (String) async -> String?)?
-    public var toolExecutor: ToolExecutor?
-    public var backgroundTaskManager: BackgroundTaskManager?
-    public var cwd: String
-    public var toolExecutionMode: ToolExecutionMode = .sequential
+    public var apiKeyResolver: (@Sendable (String) async -> String?)? {
+        get { config.apiKeyResolver }
+        set { config.apiKeyResolver = newValue }
+    }
+
+    public var backgroundTaskManager: BackgroundTaskManager? {
+        get { config.backgroundTaskManager }
+        set { config.backgroundTaskManager = newValue }
+    }
+
+    public var cwd: String {
+        get { config.cwd }
+        set { config.cwd = newValue }
+    }
+
+    public var toolExecutionMode: ToolExecutionMode {
+        get { config.toolExecutionMode }
+        set { config.toolExecutionMode = newValue }
+    }
 
     public let beforeToolCall: BeforeToolCallHook?
     public let afterToolCall: AfterToolCallHook?
     public let userPromptSubmit: UserPromptSubmitHook?
     public let betweenTurns: BetweenTurnsHook?
+
+    private let lock = NSLock()
+    private var listeners: [(id: UUID, handler: AgentListener)] = []
+    private var activeCancellation: CancellationHandle?
+    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
     public convenience init(
         initialState: AgentInitialState,
@@ -73,7 +144,11 @@ public final class Agent: @unchecked Sendable {
             try await ForgeLoopAI.stream(model: model, context: context, options: options)
         }
         self.toolExecutor = toolExecutor
-        self.cwd = cwd
+        self.config = LockedAgentConfig(
+            apiKeyResolver: nil,
+            cwd: cwd,
+            toolExecutionMode: .sequential
+        )
         self.beforeToolCall = options.beforeToolCall
         self.afterToolCall = options.afterToolCall
         self.userPromptSubmit = options.userPromptSubmit
@@ -190,12 +265,13 @@ public final class Agent: @unchecked Sendable {
     }
 
     private func makeLoopConfig(cancellation: CancellationHandle?) -> AgentLoopConfig {
-        AgentLoopConfig(
+        let snapshot = config.loopSnapshot()
+        return AgentLoopConfig(
             model: state.model,
-            apiKeyResolver: apiKeyResolver,
+            apiKeyResolver: snapshot.apiKeyResolver,
             toolExecutor: toolExecutor,
-            cwd: cwd,
-            toolExecutionMode: toolExecutionMode,
+            cwd: snapshot.cwd,
+            toolExecutionMode: snapshot.toolExecutionMode,
             beforeToolCall: beforeToolCall,
             afterToolCall: afterToolCall,
             betweenTurns: betweenTurns

@@ -12,7 +12,12 @@ public struct SSEMessage: Sendable, Equatable {
     }
 }
 
-public final class SSEParser: @unchecked Sendable {
+/// SSE parser implemented as a value type.
+///
+/// Because `SSEParser` is a `struct`, each call site owns its own mutable copy.
+/// All mutation happens through `mutating` methods, making the type naturally
+/// `Sendable` without requiring `@unchecked` or external synchronization.
+public struct SSEParser: Sendable {
     private var lineBuffer = ""
     private var event = "message"
     private var dataLines: [String] = []
@@ -21,12 +26,12 @@ public final class SSEParser: @unchecked Sendable {
 
     public init() {}
 
-    public func ingest(bytes: Data) {
+    public mutating func ingest(bytes: Data) {
         guard let text = String(data: bytes, encoding: .utf8) else { return }
         ingest(text)
     }
 
-    public func ingest(_ text: String) {
+    public mutating func ingest(_ text: String) {
         lineBuffer += text
         while let newlineRange = lineBuffer.range(of: "\n") {
             var line = String(lineBuffer[..<newlineRange.lowerBound])
@@ -36,13 +41,13 @@ public final class SSEParser: @unchecked Sendable {
         }
     }
 
-    public func drain() -> [SSEMessage] {
+    public mutating func drain() -> [SSEMessage] {
         let out = pending
         pending.removeAll()
         return out
     }
 
-    public func finish() -> [SSEMessage] {
+    public mutating func finish() -> [SSEMessage] {
         if !lineBuffer.isEmpty {
             var trailing = lineBuffer
             lineBuffer.removeAll()
@@ -59,7 +64,7 @@ public final class SSEParser: @unchecked Sendable {
         return drain()
     }
 
-    private func handle(line: String) {
+    private mutating func handle(line: String) {
         if line.isEmpty {
             if !dataLines.isEmpty || event != "message" {
                 pending.append(SSEMessage(event: event, data: dataLines.joined(separator: "\n"), id: id))

@@ -21,7 +21,7 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
 
     public func stream(model: Model, context: Context, options: StreamOptions?) -> AssistantMessageStream {
         let out = AssistantMessageStream()
-        let worker = Task.detached { [self] in
+        let worker = Task { [self] in
             await runStream(
                 model: model,
                 context: context,
@@ -180,7 +180,7 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
                 return
             }
 
-            let parser = SSEParser()
+            var parser = SSEParser()
             var lineBuffer: [UInt8] = []
 
             for try await byte in byteStream {
@@ -347,9 +347,46 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
         let input: [InputItem]
     }
 
-    private struct InputItem: Encodable {
-        let role: String
-        let content: String
+    private enum InputItem: Encodable {
+        case system(content: String)
+        case user(content: String)
+        case assistant(content: String)
+        case functionCall(callId: String, name: String, arguments: String)
+        case functionCallOutput(callId: String, output: String)
+
+        private enum CodingKeys: String, CodingKey {
+            case role
+            case content
+            case type
+            case callId = "call_id"
+            case name
+            case arguments
+            case output
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            switch self {
+            case .system(let content):
+                try container.encode("system", forKey: .role)
+                try container.encode(content, forKey: .content)
+            case .user(let content):
+                try container.encode("user", forKey: .role)
+                try container.encode(content, forKey: .content)
+            case .assistant(let content):
+                try container.encode("assistant", forKey: .role)
+                try container.encode(content, forKey: .content)
+            case .functionCall(let callId, let name, let arguments):
+                try container.encode("function_call", forKey: .type)
+                try container.encode(callId, forKey: .callId)
+                try container.encode(name, forKey: .name)
+                try container.encode(arguments, forKey: .arguments)
+            case .functionCallOutput(let callId, let output):
+                try container.encode("function_call_output", forKey: .type)
+                try container.encode(callId, forKey: .callId)
+                try container.encode(output, forKey: .output)
+            }
+        }
     }
 
     private static func responsesURL(baseURL: String) -> URL? {
@@ -363,7 +400,7 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
         var input: [InputItem] = []
 
         if let system = context.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines), !system.isEmpty {
-            input.append(InputItem(role: "system", content: system))
+            input.append(.system(content: system))
         }
 
         for message in context.messages {
@@ -371,20 +408,28 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
             case .user(let user):
                 let text = user.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !text.isEmpty {
-                    input.append(InputItem(role: "user", content: text))
+                    input.append(.user(content: text))
                 }
             case .assistant(let assistant):
-                let text = assistant.content.compactMap { block -> String? in
-                    if case .text(let t) = block { return t.text }
-                    return nil
-                }.joined().trimmingCharacters(in: .whitespacesAndNewlines)
+                var textParts: [String] = []
+                var toolCalls: [(callId: String, name: String, arguments: String)] = []
+                for block in assistant.content {
+                    switch block {
+                    case .text(let t):
+                        textParts.append(t.text)
+                    case .toolCall(let tc):
+                        toolCalls.append((callId: tc.id, name: tc.name, arguments: tc.arguments))
+                    }
+                }
+                let text = textParts.joined().trimmingCharacters(in: .whitespacesAndNewlines)
                 if !text.isEmpty {
-                    input.append(InputItem(role: "assistant", content: text))
+                    input.append(.assistant(content: text))
+                }
+                for tc in toolCalls {
+                    input.append(.functionCall(callId: tc.callId, name: tc.name, arguments: tc.arguments))
                 }
             case .tool(let toolResult):
-                // 将 tool_result 作为 user 消息注入，供后续 Responses API 使用
-                let prefix = toolResult.isError ? "[tool error]" : "[tool result]"
-                input.append(InputItem(role: "user", content: "\(prefix) \(toolResult.toolCallId): \(toolResult.output)"))
+                input.append(.functionCallOutput(callId: toolResult.toolCallId, output: toolResult.output))
             }
         }
 

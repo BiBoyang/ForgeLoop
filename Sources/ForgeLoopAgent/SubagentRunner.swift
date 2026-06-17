@@ -1,6 +1,9 @@
 import Foundation
 import ForgeLoopAI
 
+/// Error raised when a subagent run is cancelled before it completes naturally.
+public struct SubagentCancellationError: Error, Sendable {}
+
 /// Result returned by a subagent run.
 public struct SubagentResult: Sendable {
     /// Final assistant response text from the subagent.
@@ -20,7 +23,8 @@ public func runSubagent(
     definition: SubagentDefinition,
     taskPrompt: String,
     parentConfig: CodingAgentConfig,
-    parentSessionId: String
+    parentSessionId: String,
+    cancellation: CancellationHandle? = nil
 ) async throws -> SubagentResult {
     var childConfig = parentConfig
     childConfig.systemPrompt = definition.prompt
@@ -40,8 +44,19 @@ public func runSubagent(
     )
     childAgent.toolExecutionMode = childConfig.toolExecutionMode
 
-    try await childAgent.prompt(taskPrompt)
-    await childAgent.waitForIdle()
+    // Propagate cancellation from both the caller Task and the explicit handle.
+    cancellation?.onCancel { _ in childAgent.abort() }
+    try await withTaskCancellationHandler {
+        try await childAgent.prompt(taskPrompt)
+        await childAgent.waitForIdle()
+    } onCancel: {
+        childAgent.abort()
+    }
+
+    // If the run was cancelled, surface it as an error instead of returning partial/empty text.
+    guard !Task.isCancelled, cancellation?.isCancelled != true else {
+        throw SubagentCancellationError()
+    }
 
     let messages = childAgent.state.messages
     let toolCalls = messages.compactMap { message -> Int? in

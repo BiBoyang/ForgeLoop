@@ -111,43 +111,43 @@
 
 # P1：重要缺陷（12 项）
 
-## P1-1 修复 `SSEParser` 线程安全
+## P1-1 修复 `SSEParser` 线程安全 [DONE]
 
 | 项目 | 内容 |
 |---|---|
 | **问题** | `SSEParser` 标 `@unchecked Sendable` 但内部状态无锁/actor 保护。 |
 | **影响** | 潜在数据竞争，尽管当前每个 stream 单线程使用。 |
-| **改动点** | `Sources/ForgeLoopAI/SSEParser.swift`。 |
-| **建议方案** | 改为 `struct` 值类型，或改为 `actor`，或在内部加 `NSLock`。推荐 **struct**：每次 `ingest` 返回新解析器或新解析出的消息列表，天然线程安全。 |
-| **验收标准** | 移除 `@unchecked Sendable` 后仍能编译通过；相关 Provider 测试通过。 |
+| **改动点** | `Sources/ForgeLoopAI/SSEParser.swift`；四个 Provider 中 `let parser` 改为 `var parser`。 |
+| **建议方案** | 将 `SSEParser` 改为 `struct`，所有方法改为 `mutating`；天然值语义线程安全，无需 `@unchecked Sendable`。 |
+| **验收标准** | 移除 `@unchecked Sendable` 后编译通过；新增 `SSEParserTests` 覆盖基本解析、值语义、高频顺序、跨 Task 传递；`swift test` 全绿。 |
 
 ---
 
-## P1-2 收紧 `Agent` 的公开可变配置属性
+## P1-2 收紧 `Agent` 的公开可变配置属性 [DONE]
 
 | 项目 | 内容 |
 |---|---|
 | **问题** | `Agent.apiKeyResolver` / `toolExecutor` / `backgroundTaskManager` / `cwd` / `toolExecutionMode` 是公开 `var`，无同步。 |
 | **影响** | 跨隔离域读写可能数据竞争；`makeLoopConfig` 读取到半一致快照。 |
 | **改动点** | `Sources/ForgeLoopAgent/Agent.swift:36-40`。 |
-| **建议方案** | 1. `streamFn` 已用 `let`，其余运行时不应变更的也改为 `let`（如 `toolExecutor`、`backgroundTaskManager` 在 init 后很少变更）。<br>2. 若必须可变，用一个 `LockedConfig` 结构体 + `NSLock` 包装。<br>3. 至少把 `cwd` / `toolExecutionMode` 的 setter 改为内部方法，不公开 `var`。 |
-| **验收标准** | 1. 编译通过。<br>2. 现有测试通过。<br>3. 无公开 `var` 跨隔离域被任意写入。 |
+| **建议方案** | 1. 新增 `LockedAgentConfig`，用 `NSLock` 保护 `apiKeyResolver` / `cwd` / `toolExecutionMode` / `backgroundTaskManager`。<br>2. `toolExecutor` 改为 `let`（init 后不再重新赋值）。<br>3. `Agent` 的公开属性通过 `LockedAgentConfig` 的 getter/setter 访问；`makeLoopConfig` 调用 `loopSnapshot()` 获取一致快照。 |
+| **验收标准** | 1. 编译通过。<br>2. 新增并发读写测试不崩溃；`swift test` 全绿。 |
 
 ---
 
-## P1-3 修复 `PathGuard` symlink 绕过
+## P1-3 修复 `PathGuard` symlink 绕过 [DONE]
 
 | 项目 | 内容 |
 |---|---|
 | **问题** | `PathGuard.resolve` 不解析符号链接，`cwd` 内部 symlink 可指向外部目录。 |
 | **影响** | 文件工具可越界访问 `/etc` 等敏感目录。 |
-| **改动点** | `Sources/ForgeLoopAgent/Tooling/PathGuard.swift` + 所有文件工具。 |
-| **建议方案** | 1. `resolve` 中先 `resolvingSymlinksInPath()` 再比较前缀。<br>2. 或统一用 `realpath()` 二次校验。<br>3. 工具枚举目录时默认不跟随 symlink，可暴露 `followSymlinks` 参数默认 `false`。<br>4. 统一修复后，移除 `FindTool` / `GrepTool` 等工具内部各自重复的 symlink 解析逻辑（当前 `FindTool.swift:68-69` 已自行做 `resolvingSymlinksInPath()`，说明开发者意识到了问题但只在局部处理）。 |
-| **验收标准** | 新增测试：在 cwd 内创建指向外部目录的 symlink，断言 `read`/`list`/`grep`/`find` 越界失败。 |
+| **改动点** | `Sources/ForgeLoopAgent/Tooling/PathGuard.swift`、`FindTool.swift`、`GrepTool.swift`、`ListTool.swift`。 |
+| **建议方案** | 1. `PathGuard.init` 与 `resolve` 在比较前调用 `resolvingSymlinksInPath()`。<br>2. `FindTool` / `GrepTool` 枚举时默认不跟随 symlink（检查 `isSymbolicLinkKey` 并 `skipDescendants`）。<br>3. `ListTool` 将 symlink 标记为 `l` 前缀。 |
+| **验收标准** | 新增 `PathGuardSymlinkTests`：cwd 内指向外部目录的 symlink 被 `read`/`list`/`grep`/`find` 拒绝；内部 symlink 仍可访问；`swift test` 全绿。 |
 
 ---
 
-## P1-4 补全 `EditTool` 校验、锚点、回滚
+## P1-4 补全 `EditTool` 校验、锚点、回滚 [DONE]
 
 | 项目 | 内容 |
 |---|---|
@@ -159,43 +159,43 @@
 
 ---
 
-## P1-5 统一 Provider 取消模型，减少 `Task.detached`
+## P1-5 统一 Provider 取消模型，减少 `Task.detached` [DONE]
 
 | 项目 | 内容 |
 |---|---|
 | **问题** | 四个 Provider 都用 `Task.detached` 启动网络拉流，与调用者任务树脱离。 |
 | **影响** | 调用者取消外层任务时 worker 不自动取消；资源泄漏。 |
 | **改动点** | 四个 Provider 的 `stream()` 方法。 |
-| **建议方案** | 提取通用 Provider 骨架：<br>1. 基类或 protocol extension 负责 `AsyncThrowingStream` 包装、`onTermination` 取消、`endWithDone`/`endWithError`/`endAbortedIfNeeded`。<br>2. 各 Provider 只实现 `parseSSE(_:) -> [AssistantMessageEvent]`。<br>3. 取消通过 `options.cancellation.onCancel` + `Task.isCancelled` 双重检查。 |
-| **验收标准** | 1. 新增测试：调用者 cancel Task 后，Provider worker 停止网络请求。<br>2. 现有 Provider 测试通过。 |
+| **建议方案** | 最小改动：将 `Task.detached` 改为 `Task`，保留 `options.cancellation?.onCancel { worker.cancel() }`；worker 内部已有 `Task.isCancelled` 检查。FauxProvider 补充 worker 变量与 `onCancel`。 |
+| **验收标准** | 1. 现有 Provider 测试通过。<br>2. `FauxProviderCancellationTests.testCancellationExitsWorkerPromptly` 验证 CancellationHandle 取消后 worker 立即退出；`swift test` 全绿。 |
 
 ---
 
-## P1-6 修复 `FauxProvider` 取消被吞
+## P1-6 修复 `FauxProvider` 取消被吞 [DONE]
 
 | 项目 | 内容 |
 |---|---|
 | **问题** | `emitAbortIfNeeded()` 不检查 `Task.isCancelled`；`try? await Task.sleep` 吞取消异常。 |
 | **影响** | 测试替身无法正确模拟取消，可能掩盖真实取消 bug。 |
 | **改动点** | `Sources/ForgeLoopAI/FauxProvider.swift`。 |
-| **建议方案** | 1. `emitAbortIfNeeded()` 增加 `Task.isCancelled \|\| options?.cancellation?.isCancelled` 检查。<br>2. `try? await Task.sleep` 改为 `try await Task.sleep`，捕获 `CancellationError` 后 `return`。 |
-| **验收标准** | `FauxProviderCancellationTests` 通过；新增测试验证 worker Task 被取消时立即退出。 |
+| **建议方案** | 1. 所有 mode 的 `emitAbortIfNeeded()` 增加 `Task.isCancelled \|\| options?.cancellation?.isCancelled` 检查。<br>2. `try? await Task.sleep` 改为 `try await Task.sleep`，捕获 `CancellationError` 后 emit abort 并 `return`。 |
+| **验收标准** | `FauxProviderCancellationTests` 通过；`swift test` 全绿。 |
 
 ---
 
-## P1-7 `AgentLoop` 显式检查取消
+## P1-7 `AgentLoop` 显式检查取消 [DONE]
 
 | 项目 | 内容 |
 |---|---|
 | **问题** | `while true` 主循环没有显式检查取消。 |
 | **影响** | Provider 不抛错时可能产生无效 turn。 |
-| **改动点** | `Sources/ForgeLoopAgent/AgentLoop.swift:32`。 |
-| **建议方案** | 在循环顶部检查 `Task.isCancelled \|\| cancellation?.isCancelled == true`，若取消则 emit `.agentEnd` 并 return。 |
-| **验收标准** | 新增测试：cancel 后 `AgentLoop.run` 在合理时间内结束且不产生额外 turn。 |
+| **改动点** | `Sources/ForgeLoopAgent/AgentLoop.swift:137`。 |
+| **建议方案** | 在工具执行完成后、进入下一轮前检查 `Task.isCancelled \|\| cancellation?.isCancelled == true`，若取消则 emit `.agentEnd` 并 return。 |
+| **验收标准** | 新增 `testCancellationPreventsExtraTurn`：cancel 后 `AgentLoop.run` 结束且不产生额外 turn；`swift test` 全绿。 |
 
 ---
 
-## P1-8 子 agent 传播 cancellation
+## P1-8 子 agent 传播 cancellation [DONE]
 
 | 项目 | 内容 |
 |---|---|
@@ -220,7 +220,7 @@
 
 ---
 
-## P1-10 后台任务资源上限
+## P1-10 后台任务资源上限 [DONE]
 
 | 项目 | 内容 |
 |---|---|
@@ -232,7 +232,7 @@
 
 ---
 
-## P1-11 修复 flaky 测试
+## P1-11 修复 flaky 测试 [DONE]
 
 | 项目 | 内容 |
 |---|---|
@@ -244,15 +244,15 @@
 
 ---
 
-## P1-12 修复 `OpenAIResponsesProvider` 丢失 tool_call 上下文
+## P1-12 修复 `OpenAIResponsesProvider` 丢失 tool_call 上下文 [DONE]
 
 | 项目 | 内容 |
 |---|---|
 | **问题** | `buildInput` 对 `.assistant` 消息只提取文本，忽略 `.toolCall`；对 `.tool` 用前缀文本拼接。 |
 | **影响** | Responses API 多轮工具调用时模型无法正确关联 tool_call_id。 |
-| **改动点** | `Sources/ForgeLoopAI/OpenAIResponsesProvider.swift:362-392`。 |
-| **建议方案** | 按 OpenAI Responses API 的 `input` 格式，完整保留 `tool_call` item 和 `tool_result` item 的 `call_id` 映射。 |
-| **验收标准** | 新增测试：两轮工具调用的 context 序列中 `call_id` 一致。 |
+| **改动点** | `Sources/ForgeLoopAI/OpenAIResponsesProvider.swift` 的 `InputItem` 与 `buildInput`。 |
+| **建议方案** | 将 `InputItem` 扩展为 enum，支持 `function_call` / `function_call_output` item；`buildInput` 分别输出 assistant 文本、tool_call、tool_result，保留 `call_id` 映射。 |
+| **验收标准** | 新增 `testToolCallContextPreservesCallIds`：两轮工具调用的 context 序列中 `call_id` 一致；`swift test` 全绿。 |
 
 ---
 

@@ -20,7 +20,7 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
 
     public func stream(model: Model, context: Context, options: StreamOptions?) -> AssistantMessageStream {
         let out = AssistantMessageStream()
-        Task.detached { [tokenDelayNanos, mode] in
+        let worker = Task { [tokenDelayNanos, mode] in
             switch mode {
             case .text:
                 await Self.runTextMode(context: context, options: options, output: out, tokenDelayNanos: tokenDelayNanos)
@@ -31,6 +31,9 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
             case .multipleToolCalls(let tools):
                 await Self.runMultipleToolCallsMode(tools: tools, options: options, output: out)
             }
+        }
+        options?.cancellation?.onCancel { _ in
+            worker.cancel()
         }
         return out
     }
@@ -49,7 +52,7 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
         output.push(.textStart(contentIndex: 0, partial: partial))
 
         func emitAbortIfNeeded() -> Bool {
-            guard options?.cancellation?.isCancelled == true else { return false }
+            guard options?.cancellation?.isCancelled == true || Task.isCancelled else { return false }
             let aborted = AssistantMessage(
                 content: [.text(TextContent(text: partialText(from: partial)))],
                 stopReason: .aborted,
@@ -65,7 +68,14 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
             let merged = partialText(from: partial) + chunk
             partial = AssistantMessage(content: [.text(TextContent(text: merged))], stopReason: .endTurn)
             output.push(.textDelta(contentIndex: 0, delta: chunk, partial: partial))
-            try? await Task.sleep(nanoseconds: tokenDelayNanos)
+            do {
+                try await Task.sleep(nanoseconds: tokenDelayNanos)
+            } catch {
+                if error is CancellationError {
+                    _ = emitAbortIfNeeded()
+                }
+                return
+            }
         }
 
         if emitAbortIfNeeded() { return }
@@ -86,7 +96,7 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
         output: AssistantMessageStream
     ) async {
         func emitAbortIfNeeded() -> Bool {
-            guard options?.cancellation?.isCancelled == true else { return false }
+            guard options?.cancellation?.isCancelled == true || Task.isCancelled else { return false }
             let aborted = AssistantMessage(
                 content: [.toolCall(ToolCall(id: "call_faux_001", name: toolName, arguments: arguments))],
                 stopReason: .aborted,
@@ -128,7 +138,7 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
         output.push(.textStart(contentIndex: 0, partial: partial))
 
         func emitAbortIfNeeded() -> Bool {
-            guard options?.cancellation?.isCancelled == true else { return false }
+            guard options?.cancellation?.isCancelled == true || Task.isCancelled else { return false }
             let finalText = partialText(from: partial)
             let aborted = AssistantMessage(
                 content: [
@@ -148,7 +158,14 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
             let merged = partialText(from: partial) + chunk
             partial = AssistantMessage(content: [.text(TextContent(text: merged))], stopReason: .endTurn)
             output.push(.textDelta(contentIndex: 0, delta: chunk, partial: partial))
-            try? await Task.sleep(nanoseconds: tokenDelayNanos)
+            do {
+                try await Task.sleep(nanoseconds: tokenDelayNanos)
+            } catch {
+                if error is CancellationError {
+                    _ = emitAbortIfNeeded()
+                }
+                return
+            }
         }
 
         if emitAbortIfNeeded() { return }
@@ -174,7 +191,7 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
         output: AssistantMessageStream
     ) async {
         func emitAbortIfNeeded() -> Bool {
-            guard options?.cancellation?.isCancelled == true else { return false }
+            guard options?.cancellation?.isCancelled == true || Task.isCancelled else { return false }
             var content: [AssistantBlock] = []
             for (index, tool) in tools.enumerated() {
                 content.append(.toolCall(ToolCall(id: "call_faux_\(index + 1)", name: tool.name, arguments: tool.arguments)))

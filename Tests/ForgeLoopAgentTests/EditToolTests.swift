@@ -179,4 +179,129 @@ final class EditToolTests: XCTestCase {
         XCTAssertTrue(result.output.contains("Edited test.txt (1 replacement)"))
         XCTAssertTrue(result.output.contains("[diff truncated: exceeded limit]"))
     }
+
+    // MARK: - 10) Schema validation rejects unknown fields
+
+    func testSchemaRejectsUnknownField() async {
+        let tool = EditTool()
+        let result = await tool.execute(
+            arguments: "{\"path\":\"test.txt\",\"oldText\":\"a\",\"newText\":\"b\",\"extra\":1}",
+            cwd: tempDir,
+            cancellation: nil
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("unknownField"))
+    }
+
+    // MARK: - 11) Backup is created before edit
+
+    func testBackupIsCreated() async throws {
+        let filePath = "\(tempDir!)/test.txt"
+        try "original".write(toFile: filePath, atomically: true, encoding: .utf8)
+
+        let tool = EditTool()
+        let result = await tool.execute(
+            arguments: "{\"path\":\"test.txt\",\"oldText\":\"original\",\"newText\":\"modified\"}",
+            cwd: tempDir,
+            cancellation: nil
+        )
+
+        XCTAssertFalse(result.isError)
+        let backupPath = "\(filePath).bak"
+        let backupExists = FileManager.default.fileExists(atPath: backupPath)
+        XCTAssertTrue(backupExists)
+        let backupContent = try String(contentsOfFile: backupPath, encoding: .utf8)
+        XCTAssertEqual(backupContent, "original")
+    }
+
+    // MARK: - 12) Anchor narrows the match region
+
+    func testAnchorMatch() async throws {
+        let filePath = "\(tempDir!)/test.txt"
+        try "A foo B foo".write(toFile: filePath, atomically: true, encoding: .utf8)
+
+        let tool = EditTool()
+        let result = await tool.execute(
+            arguments: "{\"path\":\"test.txt\",\"oldText\":\"foo\",\"newText\":\"bar\",\"anchor\":\"B \"}",
+            cwd: tempDir,
+            cancellation: nil
+        )
+
+        XCTAssertFalse(result.isError)
+        let content = try String(contentsOfFile: filePath, encoding: .utf8)
+        XCTAssertEqual(content, "A foo B bar")
+    }
+
+    // MARK: - 13) replaceAll replaces every occurrence
+
+    func testReplaceAll() async throws {
+        let filePath = "\(tempDir!)/test.txt"
+        try "foo foo foo".write(toFile: filePath, atomically: true, encoding: .utf8)
+
+        let tool = EditTool()
+        let result = await tool.execute(
+            arguments: "{\"path\":\"test.txt\",\"oldText\":\"foo\",\"newText\":\"bar\",\"replaceAll\":true}",
+            cwd: tempDir,
+            cancellation: nil
+        )
+
+        XCTAssertFalse(result.isError)
+        XCTAssertTrue(result.output.contains("3 replacements"))
+        let content = try String(contentsOfFile: filePath, encoding: .utf8)
+        XCTAssertEqual(content, "bar bar bar")
+    }
+
+    // MARK: - 14) caseInsensitive match
+
+    func testCaseInsensitiveMatch() async throws {
+        let filePath = "\(tempDir!)/test.txt"
+        try "Hello World".write(toFile: filePath, atomically: true, encoding: .utf8)
+
+        let tool = EditTool()
+        let result = await tool.execute(
+            arguments: "{\"path\":\"test.txt\",\"oldText\":\"hello\",\"newText\":\"hi\",\"caseInsensitive\":true}",
+            cwd: tempDir,
+            cancellation: nil
+        )
+
+        XCTAssertFalse(result.isError)
+        let content = try String(contentsOfFile: filePath, encoding: .utf8)
+        XCTAssertEqual(content, "hi World")
+    }
+
+    // MARK: - 15) lineNumber restricts replacement
+
+    func testLineNumberRestriction() async throws {
+        let filePath = "\(tempDir!)/test.txt"
+        try "foo\nbar\nfoo".write(toFile: filePath, atomically: true, encoding: .utf8)
+
+        let tool = EditTool()
+        let result = await tool.execute(
+            arguments: "{\"path\":\"test.txt\",\"oldText\":\"foo\",\"newText\":\"baz\",\"lineNumber\":3}",
+            cwd: tempDir,
+            cancellation: nil
+        )
+
+        XCTAssertFalse(result.isError)
+        let content = try String(contentsOfFile: filePath, encoding: .utf8)
+        XCTAssertEqual(content, "foo\nbar\nbaz")
+    }
+
+    // MARK: - 16) Non-unique match within anchor reports error
+
+    func testNonUniqueMatchWithAnchorReturnsError() async throws {
+        let filePath = "\(tempDir!)/test.txt"
+        try "A foo foo".write(toFile: filePath, atomically: true, encoding: .utf8)
+
+        let tool = EditTool()
+        let result = await tool.execute(
+            arguments: "{\"path\":\"test.txt\",\"oldText\":\"foo\",\"newText\":\"bar\",\"anchor\":\"A \"}",
+            cwd: tempDir,
+            cancellation: nil
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("2 matches"))
+    }
 }

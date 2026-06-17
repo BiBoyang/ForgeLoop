@@ -167,7 +167,7 @@ final class AgentRunOnceTests: XCTestCase {
         let agent = Agent(initialState: AgentInitialState(model: testModel))
         agent.backgroundTaskManager = manager
 
-        let id = await manager.start(command: "sleep 60", cwd: "/tmp")
+        let id = try await manager.start(command: "sleep 60", cwd: "/tmp")
         let before = await manager.status(id: id)
         XCTAssertEqual(before.first?.status, .running)
 

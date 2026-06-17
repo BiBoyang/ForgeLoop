@@ -40,13 +40,21 @@ public struct ListTool: Tool {
                 targetURL = url
             }
 
-            let contents = try FileManager.default.contentsOfDirectory(at: targetURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
+            let contents = try FileManager.default.contentsOfDirectory(at: targetURL, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles])
             let sorted = contents.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
 
             var lines: [String] = []
             for item in sorted {
+                let itemIsSymlink = (try? item.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) ?? false
                 let itemIsDir = (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                let prefix = itemIsDir ? "d" : "-"
+                let prefix: String
+                if itemIsSymlink {
+                    prefix = "l"
+                } else if itemIsDir {
+                    prefix = "d"
+                } else {
+                    prefix = "-"
+                }
                 lines.append("\(prefix) \(item.lastPathComponent)")
             }
 

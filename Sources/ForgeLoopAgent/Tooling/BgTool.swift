@@ -2,7 +2,8 @@ import Foundation
 import ForgeLoopAI
 
 private let bgToolSchema = ToolArgsSchema(fields: [
-    ToolArgField(name: "command", type: .string, required: true)
+    ToolArgField(name: "command", type: .string, required: true),
+    ToolArgField(name: "timeoutMs", type: .int, required: false)
 ])
 
 public struct BgTool: Tool {
@@ -33,7 +34,14 @@ public struct BgTool: Tool {
             await manager.setCompletionHandler(handler)
         }
 
-        let id = await manager.start(command: command, cwd: cwd)
-        return ToolResult(output: "Started background task: \(id)", isError: false)
+        let timeoutMs = args.int("timeoutMs")
+        do {
+            let id = try await manager.start(command: command, cwd: cwd, timeoutMs: timeoutMs)
+            return ToolResult(output: "Started background task: \(id)", isError: false)
+        } catch BackgroundTaskStartError.maxConcurrentReached(let limit) {
+            return ToolResult.error(.executionFailed, message: "Maximum concurrent background tasks reached (\(limit))")
+        } catch {
+            return ToolResult.error(.executionFailed, message: "Failed to start background task: \(error.localizedDescription)")
+        }
     }
 }

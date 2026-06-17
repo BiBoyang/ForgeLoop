@@ -161,6 +161,40 @@ final class AgentStateManagementTests: XCTestCase {
         // route the write through Agent's public API instead.
         XCTAssertTrue(true)
     }
+
+    // MARK: - Configuration concurrency safety
+
+    func testConcurrentConfigReadsAndWritesDoNotCrash() async {
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+
+        await withTaskGroup(of: Void.self) { group in
+            for i in 0..<100 {
+                group.addTask {
+                    agent.cwd = "/path/\(i)"
+                    agent.toolExecutionMode = i.isMultiple(of: 2) ? .parallel : .sequential
+                    agent.apiKeyResolver = { _ in "key-\(i)" }
+                    _ = agent.cwd
+                    _ = agent.toolExecutionMode
+                    _ = agent.apiKeyResolver
+                }
+            }
+        }
+
+        // Reaching here without a crash or data-race assertion means the
+        // lock-protected config is safe under concurrent access.
+        XCTAssertTrue(true)
+    }
+
+    func testConfigSnapshotIsConsistent() {
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+        agent.cwd = "/tmp"
+        agent.toolExecutionMode = .parallel
+        agent.apiKeyResolver = { _ in "secret" }
+
+        XCTAssertEqual(agent.cwd, "/tmp")
+        XCTAssertEqual(agent.toolExecutionMode, .parallel)
+        XCTAssertNotNil(agent.apiKeyResolver)
+    }
 }
 
 private actor EventRecorder {

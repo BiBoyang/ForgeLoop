@@ -50,13 +50,20 @@ public struct GrepTool: Tool {
                 // Search recursively in directory
                 let enumerator = FileManager.default.enumerator(
                     at: url,
-                    includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
+                    includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .isSymbolicLinkKey],
                     options: [.skipsHiddenFiles, .skipsPackageDescendants]
                 )
 
                 while let itemURL = enumerator?.nextObject() as? URL {
                     if cancellation?.isCancelled == true {
                         return ToolResult.error(.cancelled, message: "Search aborted")
+                    }
+
+                    // Do not follow symlinks by default.
+                    let isSymlink = (try? itemURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) ?? false
+                    if isSymlink {
+                        enumerator?.skipDescendants()
+                        continue
                     }
 
                     let itemIsDir = (try? itemURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false

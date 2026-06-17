@@ -186,10 +186,23 @@ final class AgentStabilityTests: XCTestCase {
         let stream = AssistantMessageStream()
         let streamFn: StreamFn = { _, _, _ in stream }
         let agent = Agent(initialState: AgentInitialState(model: testModel), streamFn: streamFn)
-        agent.setupBackgroundNotifications(manager: bgManager)
 
-        // 给 setupBackgroundNotifications 一点时间完成 handler 注册
-        for _ in 0..<20 { await Task.yield() }
+        // Use a minimal handler that only steers and fulfills the expectation.
+        // This avoids racing against the real notification bridge's auto-continue path,
+        // which can re-enter streaming after the prompt task finishes and make the
+        // final `isStreaming` assertion flaky.
+        let queuedExpectation = expectation(description: "bg notification queued")
+        await bgManager.setCompletionHandler { [weak agent] record in
+            guard let agent = agent else { return }
+            let summary = record.output.isEmpty ? "(no output)" : String(record.output.prefix(200))
+            let text = """
+                Background task \(record.id) completed with status: \(record.status.rawValue)
+                Command: \(record.command)
+                Output: \(summary)
+                """.trimmingCharacters(in: .whitespacesAndNewlines)
+            agent.steer(Message.user(UserMessage(text: text)))
+            queuedExpectation.fulfill()
+        }
 
         let promptTask = Task {
             _ = try await agent.prompt("hello")
@@ -208,23 +221,10 @@ final class AgentStabilityTests: XCTestCase {
         }
 
         // streaming 期间启动一个快速 bg 任务
-        let taskId = await bgManager.start(command: "echo bg-done", cwd: "/tmp")
+        _ = try await bgManager.start(command: "echo bg-done", cwd: "/tmp")
 
-        // 等待 bg 任务完成
-        var bgAttempts = 0
-        while true {
-            let records = await bgManager.status(id: taskId)
-            if let record = records.first, record.status != .running { break }
-            await Task.yield()
-            bgAttempts += 1
-            if bgAttempts > 2000 {
-                XCTFail("Timeout waiting for bg task completion")
-                break
-            }
-        }
-
-        // 给 completion handler 执行 steer 的时间
-        for _ in 0..<100 { await Task.yield() }
+        // 等待 synthetic user message 真正入队
+        await fulfillment(of: [queuedExpectation], timeout: 5.0)
 
         // 验证 bg 通知已入队
         XCTAssertGreaterThanOrEqual(agent.queuedSteeringMessages().count, 1)
@@ -267,7 +267,7 @@ final class AgentStabilityTests: XCTestCase {
         provider.stream = stream2
 
         // 启动 bg 任务
-        _ = await bgManager.start(command: "echo done", cwd: "/tmp")
+        _ = try await bgManager.start(command: "echo done", cwd: "/tmp")
 
         // 等待 bg 触发的 continue 进入 streaming
         var attempts = 0

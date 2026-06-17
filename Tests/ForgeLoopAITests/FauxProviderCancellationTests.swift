@@ -132,4 +132,27 @@ final class FauxProviderCancellationTests: XCTestCase {
         }.joined()
         XCTAssertFalse(text.isEmpty, "Aborted message should retain partial text")
     }
+
+    // MARK: - 5) CancellationHandle 取消后 worker 不再被 sleep 卡住
+
+    func testCancellationExitsWorkerPromptly() async throws {
+        let provider = FauxProvider(tokenDelayNanos: 10_000_000_000) // 10s/chunk
+        let handle = CancellationHandle()
+        let options = StreamOptions(cancellation: handle)
+
+        let stream = provider.stream(model: testModel, context: testContext, options: options)
+
+        // 等待流开始产生 chunk
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        handle.cancel(reason: "stop")
+
+        let start = Date()
+        for await _ in stream {}
+        let elapsed = Date().timeIntervalSince(start)
+
+        // CancellationError 必须立即退出，而不是等到 10s sleep 结束。
+        XCTAssertLessThan(elapsed, 1.0, "Worker should exit promptly after cancellation")
+    }
+
 }

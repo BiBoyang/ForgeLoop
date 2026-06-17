@@ -1,6 +1,12 @@
 import Foundation
 import ForgeLoopAI
 
+/// Error thrown when a background task cannot be started.
+public enum BackgroundTaskStartError: Error, Sendable {
+    /// The configured maximum number of concurrent background tasks has been reached.
+    case maxConcurrentReached(limit: Int)
+}
+
 public enum BackgroundTaskStatus: String, Sendable {
     case running
     case success
@@ -40,18 +46,34 @@ public struct BackgroundTaskRecord: Sendable {
 }
 
 public actor BackgroundTaskManager {
+    /// Default lifetime for a background task (5 minutes).
+    public static let defaultTimeoutMs = 300_000
+
     private var tasks: [String: BackgroundTaskRecord] = [:]
     private var handles: [String: CancellationHandle] = [:]
+    private var activeCount: Int = 0
     private var completionHandler: (@Sendable (BackgroundTaskRecord) async -> Void)?
 
-    public init() {}
+    /// Maximum number of tasks allowed to run at the same time.
+    public let maxConcurrent: Int
+    /// Maximum number of completed/running records to retain. Oldest completed records are pruned first.
+    public let maxRetained: Int
+
+    public init(maxConcurrent: Int = 8, maxRetained: Int = 50) {
+        self.maxConcurrent = max(maxConcurrent, 1)
+        self.maxRetained = max(maxRetained, 1)
+    }
 
     public func setCompletionHandler(_ handler: @escaping @Sendable (BackgroundTaskRecord) async -> Void) {
         completionHandler = handler
     }
 
     @discardableResult
-    public func start(command: String, cwd: String) -> String {
+    public func start(command: String, cwd: String, timeoutMs: Int? = nil) throws -> String {
+        guard activeCount < maxConcurrent else {
+            throw BackgroundTaskStartError.maxConcurrentReached(limit: maxConcurrent)
+        }
+
         let id = String(UUID().uuidString.prefix(8)).lowercased()
         let cancellation = CancellationHandle()
         let record = BackgroundTaskRecord(
@@ -62,25 +84,37 @@ public actor BackgroundTaskManager {
         )
         tasks[id] = record
         handles[id] = cancellation
+        activeCount += 1
+
+        let effectiveTimeout = timeoutMs ?? Self.defaultTimeoutMs
 
         Task {
             let result = await ProcessRunner.run(
                 command: command,
                 cwd: cwd,
-                timeoutMs: nil,
+                timeoutMs: effectiveTimeout,
                 cancellation: cancellation
             )
 
-            // 如果已被取消，不覆盖状态（防止竞争）
+            // If the task was already cancelled, leave its record untouched and avoid double-decrementing.
             guard let current = tasks[id], current.status == .running else { return }
 
             var updated = record
-            updated.status = result.exitCode == 0 ? .success : .failed
+            if result.timedOut {
+                updated.status = .failed
+                updated.exitCode = result.exitCode
+            } else {
+                updated.status = result.exitCode == 0 ? .success : .failed
+                updated.exitCode = result.exitCode
+            }
             updated.finishedAt = Date()
-            updated.exitCode = result.exitCode
 
             var output = ""
+            if result.timedOut {
+                output += "[timeout] Command timed out after \(effectiveTimeout)ms"
+            }
             if !result.stdout.isEmpty {
+                if !output.isEmpty { output += "\n" }
                 output += result.stdout
             }
             if !result.stderr.isEmpty {
@@ -91,10 +125,30 @@ public actor BackgroundTaskManager {
 
             tasks[id] = updated
             handles.removeValue(forKey: id)
+            activeCount -= 1
+            pruneRetainedTasks()
             await completionHandler?(updated)
         }
 
         return id
+    }
+
+    /// Removes oldest completed records while keeping the completed count within `maxRetained`.
+    /// Running records are never removed. Oldest is determined by `finishedAt` (falling back to
+    /// `startedAt`), with id ordering as a stable tie-breaker.
+    private func pruneRetainedTasks() {
+        let completed = tasks.values.filter { $0.status != .running }
+        guard completed.count > maxRetained else { return }
+
+        let sorted = completed.sorted {
+            let lhs = $0.finishedAt ?? $0.startedAt
+            let rhs = $1.finishedAt ?? $1.startedAt
+            if lhs == rhs { return $0.id < $1.id }
+            return lhs < rhs
+        }
+        for record in sorted.prefix(sorted.count - maxRetained) {
+            tasks.removeValue(forKey: record.id)
+        }
     }
 
     public func status(id: String? = nil) -> [BackgroundTaskRecord] {
@@ -113,6 +167,8 @@ public actor BackgroundTaskManager {
         task.finishedAt = Date()
         task.cancelledBy = source
         tasks[id] = task
+        activeCount -= 1
+        pruneRetainedTasks()
     }
 
     @discardableResult

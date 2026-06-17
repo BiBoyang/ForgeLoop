@@ -10,13 +10,14 @@ public struct PathGuard: Sendable {
     public let cwd: URL
 
     public init(cwd: String) {
-        self.cwd = URL(fileURLWithPath: cwd).standardizedFileURL
+        self.cwd = URL(fileURLWithPath: cwd).standardizedFileURL.resolvingSymlinksInPath()
     }
 
     /// 验证并解析路径，返回标准化后的绝对路径 URL。
+    /// 解析符号链接后再比较前缀，防止 cwd 内 symlink 指向外部目录。
     /// 如果路径越界（不在 cwd 下）则抛出 .outsideCwd。
     public func resolve(_ path: String) throws -> URL {
-        let absolute = URL(fileURLWithPath: path, relativeTo: cwd).standardizedFileURL
+        let absolute = URL(fileURLWithPath: path, relativeTo: cwd).standardizedFileURL.resolvingSymlinksInPath()
         guard absolute.path.hasPrefix(cwd.path + "/") || absolute.path == cwd.path else {
             throw PathError.outsideCwd
         }

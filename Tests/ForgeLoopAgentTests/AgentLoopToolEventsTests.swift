@@ -171,4 +171,52 @@ final class AgentLoopToolEventsTests: XCTestCase {
         XCTAssertLessThan(startIdx!, endIdx!)
         XCTAssertLessThan(endIdx!, turnEndIdx!)
     }
+
+    // MARK: - 5) 取消后不再产生额外 turn
+    func testCancellationPreventsExtraTurn() async throws {
+        let counter = StreamCallCounter()
+        let cancellation = CancellationHandle()
+        cancellation.cancel(reason: "test")
+
+        let streamFn: StreamFn = { _, _, _ in
+            let count = await counter.increment()
+            let stream = AssistantMessageStream()
+            if count == 1 {
+                let toolCall = ToolCall(id: "call-1", name: "test_tool", arguments: "{}")
+                let message = AssistantMessage(content: [.toolCall(toolCall)], stopReason: .toolUse)
+                Task.detached {
+                    stream.push(.start(partial: message))
+                    stream.push(.done(reason: .toolUse, message: message))
+                    stream.end(message)
+                }
+            } else {
+                let message = AssistantMessage.text("should not run", stopReason: .endTurn)
+                Task.detached {
+                    stream.push(.start(partial: message))
+                    stream.push(.done(reason: .endTurn, message: message))
+                    stream.end(message)
+                }
+            }
+            return stream
+        }
+
+        let collector = EventCollector()
+        let emit: AgentEventSink = { event in
+            await collector.append(event)
+        }
+
+        try await AgentLoop.run(
+            prompts: [.user(UserMessage(text: "hi"))],
+            context: AgentContext(systemPrompt: "", messages: []),
+            config: AgentLoopConfig(model: testModel),
+            emit: emit,
+            cancellation: cancellation,
+            streamFn: streamFn
+        )
+
+        let count = await counter.count
+        let events = await collector.events
+        XCTAssertEqual(count, 1)
+        XCTAssertTrue(events.contains { if case .agentEnd = $0 { return true }; return false })
+    }
 }

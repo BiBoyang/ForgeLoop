@@ -21,7 +21,7 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
 
     public func stream(model: Model, context: Context, options: StreamOptions?) -> AssistantMessageStream {
         let out = AssistantMessageStream()
-        let worker = Task.detached { [self] in
+        let worker = Task { [self] in
             await runStream(
                 model: model,
                 context: context,
@@ -174,7 +174,7 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
                 return
             }
 
-            let parser = SSEParser()
+            var parser = SSEParser()
             var lineBuffer: [UInt8] = []
             var rawBytes: [UInt8] = []
             var sawStructuredChunk = false

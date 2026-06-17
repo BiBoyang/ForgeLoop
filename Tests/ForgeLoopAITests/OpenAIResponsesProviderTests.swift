@@ -386,6 +386,60 @@ data: {"type":"response.error","error":{"message":"tool call failed"}}
         XCTAssertEqual(result.stopReason, .error)
         XCTAssertEqual(result.errorMessage, "tool call failed")
     }
+
+    // MARK: - Tool call context preservation
+
+    func testToolCallContextPreservesCallIds() async throws {
+        let context = Context(
+            systemPrompt: "You are helpful.",
+            messages: [
+                .user(UserMessage(text: "call two tools")),
+                .assistant(AssistantMessage(content: [
+                    .toolCall(ToolCall(id: "call_1", name: "read", arguments: "{\"path\":\"a.txt\"}")),
+                    .toolCall(ToolCall(id: "call_2", name: "write", arguments: "{\"path\":\"b.txt\",\"content\":\"x\"}"))
+                ], stopReason: .toolUse)),
+                .tool(ToolResultMessage(toolCallId: "call_1", output: "content of a")),
+                .tool(ToolResultMessage(toolCallId: "call_2", output: "done")),
+                .assistant(AssistantMessage.text("first round done")),
+                .user(UserMessage(text: "call again")),
+                .assistant(AssistantMessage(content: [
+                    .toolCall(ToolCall(id: "call_3", name: "read", arguments: "{\"path\":\"c.txt\"}"))
+                ], stopReason: .toolUse)),
+                .tool(ToolResultMessage(toolCallId: "call_3", output: "content of c")),
+            ]
+        )
+
+        let payload = """
+event: response.completed
+data: {"type":"response.completed"}
+
+"""
+        let client = StubHTTPClient(statusCode: 200, payload: payload)
+        let provider = OpenAIResponsesProvider(defaultAPIKey: "sk-test", httpClient: client)
+
+        let stream = provider.stream(model: testModel, context: context, options: nil)
+        for await _ in stream {}
+
+        guard let request = await client.capturedRequest(),
+              let body = request.body,
+              let object = try JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let input = object["input"] as? [[String: Any]] else {
+            XCTFail("Expected captured request with input")
+            return
+        }
+
+        let functionCalls = input.filter { $0["type"] as? String == "function_call" }
+        let functionCallOutputs = input.filter { $0["type"] as? String == "function_call_output" }
+
+        XCTAssertEqual(functionCalls.count, 3)
+        XCTAssertEqual(functionCallOutputs.count, 3)
+
+        let callIds = functionCalls.compactMap { $0["call_id"] as? String }
+        let outputCallIds = functionCallOutputs.compactMap { $0["call_id"] as? String }
+
+        XCTAssertEqual(callIds, ["call_1", "call_2", "call_3"])
+        XCTAssertEqual(outputCallIds, ["call_1", "call_2", "call_3"])
+    }
 }
 
 private func text(from message: AssistantMessage) -> String {

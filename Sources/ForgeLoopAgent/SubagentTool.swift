@@ -57,9 +57,12 @@ public struct SubagentTool: Tool {
                 definition: definition,
                 taskPrompt: taskPrompt,
                 parentConfig: parentConfig,
-                parentSessionId: parentSessionId
+                parentSessionId: parentSessionId,
+                cancellation: cancellation
             )
             return ToolResult(output: result.text, isError: false)
+        } catch is SubagentCancellationError {
+            return ToolResult.error(.cancelled, message: "Subagent cancelled")
         } catch {
             return ToolResult.error(.executionFailed, message: "Subagent failed: \(error.localizedDescription)")
         }

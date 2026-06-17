@@ -134,6 +134,12 @@ public enum AgentLoop {
                     context: &currentContext,
                     emit: emit
                 )
+
+                guard !Task.isCancelled, cancellation?.isCancelled != true else {
+                    await emit(.agentEnd(messages: delta()))
+                    return
+                }
+
                 await emit(.turnStart)
                 continue
             }

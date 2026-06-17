@@ -36,6 +36,10 @@ public struct BashTool: Tool {
     }
 
     public func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
+        if cancellation?.isCancelled == true {
+            return ToolResult.error(.cancelled, message: "Command aborted")
+        }
+
         let validation = ToolArgsValidator.validate(arguments, schema: bashToolSchema)
         let args: ValidatedArgs
         switch validation {
@@ -66,8 +70,14 @@ public struct BashTool: Tool {
             guard let manager = manager else {
                 return ToolResult.error(.notImplemented, message: "Background mode requires a BackgroundTaskManager")
             }
-            let id = await manager.start(command: command, cwd: cwd)
-            return ToolResult(output: "Started background task: \(id)", isError: false)
+            do {
+                let id = try await manager.start(command: command, cwd: cwd)
+                return ToolResult(output: "Started background task: \(id)", isError: false)
+            } catch BackgroundTaskStartError.maxConcurrentReached(let limit) {
+                return ToolResult.error(.executionFailed, message: "Maximum concurrent background tasks reached (\(limit))")
+            } catch {
+                return ToolResult.error(.executionFailed, message: "Failed to start background task: \(error.localizedDescription)")
+            }
         }
 
         // foreground mode (existing behavior)

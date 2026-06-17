@@ -55,7 +55,7 @@ public struct FindTool: Tool {
 
             let enumerator = FileManager.default.enumerator(
                 at: url,
-                includingPropertiesForKeys: [.isDirectoryKey],
+                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
                 options: [.skipsHiddenFiles, .skipsPackageDescendants]
             )
 
@@ -64,7 +64,14 @@ public struct FindTool: Tool {
                     return ToolResult.error(.cancelled, message: "Search aborted")
                 }
 
-                // Check depth using standardized path components to handle /private symlink prefix
+                // Do not follow symlinks by default.
+                let isSymlink = (try? itemURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) ?? false
+                if isSymlink {
+                    enumerator?.skipDescendants()
+                    continue
+                }
+
+                // Check depth using standardized path components to handle /private symlink prefix.
                 let baseComponents = url.standardizedFileURL.resolvingSymlinksInPath().pathComponents
                 let itemComponents = itemURL.standardizedFileURL.resolvingSymlinksInPath().pathComponents
                 let depth = itemComponents.count - baseComponents.count

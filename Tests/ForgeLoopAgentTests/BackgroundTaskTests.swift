@@ -6,9 +6,9 @@ final class BackgroundTaskTests: XCTestCase {
 
     // MARK: - 1) Start a background task and get an ID
 
-    func testStartReturnsTaskID() async {
+    func testStartReturnsTaskID() async throws {
         let manager = BackgroundTaskManager()
-        let id = await manager.start(command: "echo hello", cwd: "/tmp")
+        let id = try await manager.start(command: "echo hello", cwd: "/tmp")
 
         XCTAssertEqual(id.count, 8)
         XCTAssertTrue(id.allSatisfy { $0.isHexDigit })
@@ -16,9 +16,9 @@ final class BackgroundTaskTests: XCTestCase {
 
     // MARK: - 2) Query status returns running tasks
 
-    func testStatusReturnsRunningTasks() async {
+    func testStatusReturnsRunningTasks() async throws {
         let manager = BackgroundTaskManager()
-        let id = await manager.start(command: "sleep 0.5", cwd: "/tmp")
+        let id = try await manager.start(command: "sleep 0.5", cwd: "/tmp")
 
         let tasks = await manager.status()
         XCTAssertEqual(tasks.count, 1)
@@ -29,16 +29,16 @@ final class BackgroundTaskTests: XCTestCase {
 
     // MARK: - 3) Query specific task by ID
 
-    func testStatusByID() async {
+    func testStatusByID() async throws {
         let manager = BackgroundTaskManager()
-        let id = await manager.start(command: "echo test", cwd: "/tmp")
+        let id = try await manager.start(command: "echo test", cwd: "/tmp")
 
         let tasks = await manager.status(id: id)
         XCTAssertEqual(tasks.count, 1)
         XCTAssertEqual(tasks[0].id, id)
     }
 
-    func testStatusByUnknownIDReturnsEmpty() async {
+    func testStatusByUnknownIDReturnsEmpty() async throws {
         let manager = BackgroundTaskManager()
         let tasks = await manager.status(id: "nonexistent")
         XCTAssertTrue(tasks.isEmpty)
@@ -48,7 +48,7 @@ final class BackgroundTaskTests: XCTestCase {
 
     func testTaskCompletionUpdatesStatus() async throws {
         let manager = BackgroundTaskManager()
-        let id = await manager.start(command: "echo done", cwd: "/tmp")
+        let id = try await manager.start(command: "echo done", cwd: "/tmp")
 
         // Wait for the task to complete
         try await Task.sleep(nanoseconds: 200_000_000) // 200ms
@@ -64,7 +64,7 @@ final class BackgroundTaskTests: XCTestCase {
 
     func testFailedTaskReportsFailed() async throws {
         let manager = BackgroundTaskManager()
-        let id = await manager.start(command: "exit 1", cwd: "/tmp")
+        let id = try await manager.start(command: "exit 1", cwd: "/tmp")
 
         try await Task.sleep(nanoseconds: 200_000_000)
 
@@ -88,7 +88,7 @@ final class BackgroundTaskTests: XCTestCase {
             await tracker.set(record)
         }
 
-        let id = await manager.start(command: "echo handler_test", cwd: "/tmp")
+        let id = try await manager.start(command: "echo handler_test", cwd: "/tmp")
         try await Task.sleep(nanoseconds: 300_000_000)
 
         let completed = await tracker.completed
@@ -99,7 +99,7 @@ final class BackgroundTaskTests: XCTestCase {
 
     // MARK: - 7) BgTool starts a task
 
-    func testBgToolStartsTask() async {
+    func testBgToolStartsTask() async throws {
         let manager = BackgroundTaskManager()
         let tool = BgTool(manager: manager)
 
@@ -113,7 +113,7 @@ final class BackgroundTaskTests: XCTestCase {
         XCTAssertTrue(result.output.contains("Started"))
     }
 
-    func testBgToolMissingCommand() async {
+    func testBgToolMissingCommand() async throws {
         let manager = BackgroundTaskManager()
         let tool = BgTool(manager: manager)
 
@@ -124,7 +124,7 @@ final class BackgroundTaskTests: XCTestCase {
         XCTAssertTrue(result.output.contains("$.command"))
     }
 
-    func testBgToolUnknownField() async {
+    func testBgToolUnknownField() async throws {
         let manager = BackgroundTaskManager()
         let tool = BgTool(manager: manager)
 
@@ -139,7 +139,7 @@ final class BackgroundTaskTests: XCTestCase {
         XCTAssertTrue(result.output.contains("$.extra"))
     }
 
-    func testBgToolInvalidJson() async {
+    func testBgToolInvalidJson() async throws {
         let manager = BackgroundTaskManager()
         let tool = BgTool(manager: manager)
 
@@ -153,7 +153,7 @@ final class BackgroundTaskTests: XCTestCase {
 
     func testBgStatusToolReturnsTasks() async throws {
         let manager = BackgroundTaskManager()
-        let id = await manager.start(command: "echo test", cwd: "/tmp")
+        let id = try await manager.start(command: "echo test", cwd: "/tmp")
 
         let statusTool = BgStatusTool(manager: manager)
         let result = await statusTool.execute(
@@ -166,7 +166,7 @@ final class BackgroundTaskTests: XCTestCase {
         XCTAssertTrue(result.output.contains(id))
     }
 
-    func testBgStatusToolEmptyState() async {
+    func testBgStatusToolEmptyState() async throws {
         let manager = BackgroundTaskManager()
         let statusTool = BgStatusTool(manager: manager)
 
@@ -176,7 +176,7 @@ final class BackgroundTaskTests: XCTestCase {
         XCTAssertTrue(result.output.contains("no background tasks"))
     }
 
-    func testBgStatusToolUnknownID() async {
+    func testBgStatusToolUnknownID() async throws {
         let manager = BackgroundTaskManager()
         let statusTool = BgStatusTool(manager: manager)
 
@@ -190,7 +190,7 @@ final class BackgroundTaskTests: XCTestCase {
         XCTAssertTrue(result.output.contains("No task found"))
     }
 
-    func testBgStatusToolInvalidIdType() async {
+    func testBgStatusToolInvalidIdType() async throws {
         let manager = BackgroundTaskManager()
         let statusTool = BgStatusTool(manager: manager)
 
@@ -205,7 +205,7 @@ final class BackgroundTaskTests: XCTestCase {
         XCTAssertTrue(result.output.contains("$.id"))
     }
 
-    func testBgStatusToolUnknownField() async {
+    func testBgStatusToolUnknownField() async throws {
         let manager = BackgroundTaskManager()
         let statusTool = BgStatusTool(manager: manager)
 
@@ -220,7 +220,7 @@ final class BackgroundTaskTests: XCTestCase {
         XCTAssertTrue(result.output.contains("$.extra"))
     }
 
-    func testBgStatusToolInvalidJson() async {
+    func testBgStatusToolInvalidJson() async throws {
         let manager = BackgroundTaskManager()
         let statusTool = BgStatusTool(manager: manager)
 
@@ -232,10 +232,10 @@ final class BackgroundTaskTests: XCTestCase {
 
     // MARK: - 9) Multiple tasks tracked independently
 
-    func testMultipleTasksTracked() async {
+    func testMultipleTasksTracked() async throws {
         let manager = BackgroundTaskManager()
-        let id1 = await manager.start(command: "echo one", cwd: "/tmp")
-        let id2 = await manager.start(command: "echo two", cwd: "/tmp")
+        let id1 = try await manager.start(command: "echo one", cwd: "/tmp")
+        let id2 = try await manager.start(command: "echo two", cwd: "/tmp")
 
         let tasks = await manager.status()
         XCTAssertEqual(tasks.count, 2)
@@ -248,7 +248,7 @@ final class BackgroundTaskTests: XCTestCase {
 
     func testCancelTerminatesRunningTask() async throws {
         let manager = BackgroundTaskManager()
-        let id = await manager.start(command: "sleep 10", cwd: "/tmp")
+        let id = try await manager.start(command: "sleep 10", cwd: "/tmp")
 
         // Verify it's running
         let running = await manager.status(id: id)
@@ -277,7 +277,7 @@ final class BackgroundTaskTests: XCTestCase {
             await tracker.increment()
         }
 
-        let id = await manager.start(command: "sleep 10", cwd: "/tmp")
+        let id = try await manager.start(command: "sleep 10", cwd: "/tmp")
         await manager.cancel(id: id)
 
         try await Task.sleep(nanoseconds: 200_000_000)
@@ -290,7 +290,7 @@ final class BackgroundTaskTests: XCTestCase {
 
     func testCancelCompletedTaskIsNoOp() async throws {
         let manager = BackgroundTaskManager()
-        let id = await manager.start(command: "echo done", cwd: "/tmp")
+        let id = try await manager.start(command: "echo done", cwd: "/tmp")
 
         try await Task.sleep(nanoseconds: 200_000_000)
 
@@ -307,7 +307,7 @@ final class BackgroundTaskTests: XCTestCase {
 
     func testBgTaskInheritsPagerEnvironment() async throws {
         let manager = BackgroundTaskManager()
-        let id = await manager.start(command: "echo \"$PAGER\"", cwd: "/tmp")
+        let id = try await manager.start(command: "echo \"$PAGER\"", cwd: "/tmp")
 
         try await Task.sleep(nanoseconds: 200_000_000)
 
@@ -319,9 +319,9 @@ final class BackgroundTaskTests: XCTestCase {
 
     // MARK: - 13) Cancel source appears in bg_status output
 
-    func testCancelSourceInStatus() async {
+    func testCancelSourceInStatus() async throws {
         let manager = BackgroundTaskManager()
-        let id = await manager.start(command: "sleep 10", cwd: "/tmp")
+        let id = try await manager.start(command: "sleep 10", cwd: "/tmp")
         await manager.cancel(id: id, by: "system")
 
         let statusTool = BgStatusTool(manager: manager)
@@ -339,9 +339,9 @@ final class BackgroundTaskTests: XCTestCase {
 
     func testCancelAllCancelsOnlyRunningTasks() async throws {
         let manager = BackgroundTaskManager()
-        _ = await manager.start(command: "sleep 10", cwd: "/tmp")
-        _ = await manager.start(command: "sleep 10", cwd: "/tmp")
-        _ = await manager.start(command: "echo done", cwd: "/tmp")
+        _ = try await manager.start(command: "sleep 10", cwd: "/tmp")
+        _ = try await manager.start(command: "sleep 10", cwd: "/tmp")
+        _ = try await manager.start(command: "echo done", cwd: "/tmp")
 
         try await Task.sleep(nanoseconds: 200_000_000)
 
@@ -352,5 +352,45 @@ final class BackgroundTaskTests: XCTestCase {
         let cancelled = allTasks.filter { $0.status == .cancelled }
         XCTAssertEqual(cancelled.count, 2)
         XCTAssertTrue(cancelled.allSatisfy { $0.cancelledBy == "bulk-test" })
+    }
+
+    // MARK: - Resource limits
+
+    func testTimeoutTerminatesTask() async throws {
+        let manager = BackgroundTaskManager()
+        let id = try await manager.start(command: "sleep 10", cwd: "/tmp", timeoutMs: 100)
+
+        try await Task.sleep(nanoseconds: 400_000_000)
+
+        let tasks = await manager.status(id: id)
+        XCTAssertEqual(tasks.count, 1)
+        XCTAssertEqual(tasks[0].status, .failed)
+        XCTAssertTrue(tasks[0].output.contains("timeout"))
+    }
+
+    func testMaxConcurrentBlocksExtraTasks() async throws {
+        let manager = BackgroundTaskManager(maxConcurrent: 1)
+        _ = try await manager.start(command: "sleep 5", cwd: "/tmp")
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await manager.start(command: "echo overflow", cwd: "/tmp")
+        }
+    }
+
+    func testMaxRetainedPrunesOldTasks() async throws {
+        let manager = BackgroundTaskManager(maxRetained: 2)
+        // Use staggered sleep durations so completion order is deterministic
+        // regardless of scheduler timing.
+        let id1 = try await manager.start(command: "sleep 0.05", cwd: "/tmp")
+        let id2 = try await manager.start(command: "sleep 0.15", cwd: "/tmp")
+        let id3 = try await manager.start(command: "sleep 0.25", cwd: "/tmp")
+
+        try await Task.sleep(nanoseconds: 400_000_000)
+
+        let remainingIDs = await manager.status().map(\.id)
+        XCTAssertEqual(remainingIDs.count, 2)
+        XCTAssertFalse(remainingIDs.contains(id1), "Oldest completed task should be pruned")
+        XCTAssertTrue(remainingIDs.contains(id2))
+        XCTAssertTrue(remainingIDs.contains(id3))
     }
 }
