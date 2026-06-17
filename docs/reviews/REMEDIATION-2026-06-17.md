@@ -269,13 +269,13 @@
 
 ---
 
-## P2-2 拆分 `CodingTUI`
+## P2-2 拆分 `CodingTUI` [DONE]
 
 | 项目 | 内容 |
 |---|---|
 | **问题** | `runCodingTUIInternal` 600+ 行，职责过多。 |
 | **改动点** | `Sources/ForgeLoopCli/CodingTUI.swift`。 |
-| **建议方案** | 拆分为 `SessionCoordinator`（P1-9）、`RenderLoop`、`InputLoop`、`KeyBindingDispatcher`。 |
+| **建议方案** | 拆分为 `CodingTUIStatus.swift`、`CodingTUIKeybindings.swift`、`CodingTUISession.swift`、`CodingTUISession+Render.swift`、`CodingTUISession+Input.swift`。 |
 | **验收标准** | `CodingTUI.swift` 主函数控制在 200 行以内。 |
 
 ---
