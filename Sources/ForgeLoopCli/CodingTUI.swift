@@ -555,7 +555,7 @@ func runCodingTUIInternal(
                 renderer.applyCore(coreEvent)
             }
 
-            if case .contextCompacted(let before, let after) = event {
+            if case .contextCompacted(let before, let after, _) = event {
                 didCompactRecently = true
                 let notice = FooterNotice(
                     text: "Auto-compacted context: \(before) → \(after) messages",

@@ -362,7 +362,7 @@ final class AgentStabilityTests: XCTestCase {
             return false
         }
         XCTAssertEqual(compactEvents.count, 1)
-        if case .contextCompacted(let before, let after) = compactEvents.first {
+        if case .contextCompacted(let before, let after, _) = compactEvents.first {
             XCTAssertEqual(before, 26) // 24 + user + assistant
             XCTAssertEqual(after, 10)
         }

@@ -33,7 +33,7 @@ public func toCoreRenderEvent(_ event: AgentEvent, blockID: String = "__assistan
         )]
     case .toolExecutionEnd(let toolCallId, _, let isError, let summary):
         return [.operationEnd(id: toolCallId, isError: isError, result: summary)]
-    case .contextCompacted:
+    case .contextCompacted(_, _, _):
         return []
     }
 }

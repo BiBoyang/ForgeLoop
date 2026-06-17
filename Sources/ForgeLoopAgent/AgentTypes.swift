@@ -34,7 +34,7 @@ public enum AgentEvent: Sendable {
     case messageEnd(message: Message)
     case toolExecutionStart(toolCallId: String, toolName: String, args: String)
     case toolExecutionEnd(toolCallId: String, toolName: String, isError: Bool, summary: String?)
-    case contextCompacted(before: Int, after: Int)
+    case contextCompacted(before: Int, after: Int, messages: [Message]?)
 
     public var type: String {
         switch self {
@@ -73,18 +73,27 @@ public struct AgentLoopConfig: Sendable {
     public var toolExecutor: ToolExecutor?
     public var cwd: String
     public var toolExecutionMode: ToolExecutionMode
+    public var beforeToolCall: BeforeToolCallHook?
+    public var afterToolCall: AfterToolCallHook?
+    public var betweenTurns: BetweenTurnsHook?
 
     public init(
         model: Model,
         apiKeyResolver: (@Sendable (String) async -> String?)? = nil,
         toolExecutor: ToolExecutor? = nil,
         cwd: String = "",
-        toolExecutionMode: ToolExecutionMode = .sequential
+        toolExecutionMode: ToolExecutionMode = .sequential,
+        beforeToolCall: BeforeToolCallHook? = nil,
+        afterToolCall: AfterToolCallHook? = nil,
+        betweenTurns: BetweenTurnsHook? = nil
     ) {
         self.model = model
         self.apiKeyResolver = apiKeyResolver
         self.toolExecutor = toolExecutor
         self.cwd = cwd
         self.toolExecutionMode = toolExecutionMode
+        self.beforeToolCall = beforeToolCall
+        self.afterToolCall = afterToolCall
+        self.betweenTurns = betweenTurns
     }
 }

@@ -1,6 +1,28 @@
 import Foundation
 import ForgeLoopAI
 
+public struct AgentOptions: Sendable {
+    public var initialState: AgentInitialState
+    public var beforeToolCall: BeforeToolCallHook?
+    public var afterToolCall: AfterToolCallHook?
+    public var userPromptSubmit: UserPromptSubmitHook?
+    public var betweenTurns: BetweenTurnsHook?
+
+    public init(
+        initialState: AgentInitialState,
+        beforeToolCall: BeforeToolCallHook? = nil,
+        afterToolCall: AfterToolCallHook? = nil,
+        userPromptSubmit: UserPromptSubmitHook? = nil,
+        betweenTurns: BetweenTurnsHook? = nil
+    ) {
+        self.initialState = initialState
+        self.beforeToolCall = beforeToolCall
+        self.afterToolCall = afterToolCall
+        self.userPromptSubmit = userPromptSubmit
+        self.betweenTurns = betweenTurns
+    }
+}
+
 public final class Agent: @unchecked Sendable {
     public let state: AgentState
     private let streamFn: StreamFn
@@ -17,22 +39,45 @@ public final class Agent: @unchecked Sendable {
     public var cwd: String
     public var toolExecutionMode: ToolExecutionMode = .sequential
 
-    public init(
+    public let beforeToolCall: BeforeToolCallHook?
+    public let afterToolCall: AfterToolCallHook?
+    public let userPromptSubmit: UserPromptSubmitHook?
+    public let betweenTurns: BetweenTurnsHook?
+
+    public convenience init(
         initialState: AgentInitialState,
         streamFn: StreamFn? = nil,
         toolExecutor: ToolExecutor? = nil,
         cwd: String = ""
     ) {
+        self.init(
+            options: AgentOptions(initialState: initialState),
+            streamFn: streamFn,
+            toolExecutor: toolExecutor,
+            cwd: cwd
+        )
+    }
+
+    public init(
+        options: AgentOptions,
+        streamFn: StreamFn? = nil,
+        toolExecutor: ToolExecutor? = nil,
+        cwd: String = ""
+    ) {
         self.state = AgentState(
-            systemPrompt: initialState.systemPrompt,
-            model: initialState.model,
-            messages: initialState.messages
+            systemPrompt: options.initialState.systemPrompt,
+            model: options.initialState.model,
+            messages: options.initialState.messages
         )
         self.streamFn = streamFn ?? { model, context, options in
             try await ForgeLoopAI.stream(model: model, context: context, options: options)
         }
         self.toolExecutor = toolExecutor
         self.cwd = cwd
+        self.beforeToolCall = options.beforeToolCall
+        self.afterToolCall = options.afterToolCall
+        self.userPromptSubmit = options.userPromptSubmit
+        self.betweenTurns = options.betweenTurns
     }
 
     public func subscribe(_ handler: @escaping AgentListener) -> Unsubscribe {
@@ -46,23 +91,27 @@ public final class Agent: @unchecked Sendable {
     }
 
     public func prompt(_ text: String) async throws {
-        let user = Message.user(UserMessage(text: text))
-        try await runLifecycle { [self] cancellation, emit in
-            try await AgentLoop.run(
-                prompts: [user],
-                context: snapshotContext(),
-                config: AgentLoopConfig(
-                    model: state.model,
-                    apiKeyResolver: apiKeyResolver,
-                    toolExecutor: toolExecutor,
-                    cwd: cwd,
-                    toolExecutionMode: toolExecutionMode
-                ),
-                emit: emit,
-                cancellation: cancellation,
-                streamFn: streamFn
-            )
-        }
+        try await runLifecycle(
+            makePrompts: { [self] cancellation in
+                if let hook = userPromptSubmit {
+                    let result = await hook(text, cancellation)
+                    if result?.block == true { return nil }
+                    let effectiveText = result?.modifiedText ?? text
+                    return [Message.user(UserMessage(text: effectiveText))]
+                }
+                return [Message.user(UserMessage(text: text))]
+            },
+            executor: { [self] cancellation, emit, prompts in
+                try await AgentLoop.run(
+                    prompts: prompts,
+                    context: snapshotContext(),
+                    config: makeLoopConfig(cancellation: cancellation),
+                    emit: emit,
+                    cancellation: cancellation,
+                    streamFn: streamFn
+                )
+            }
+        )
     }
 
     public func steer(_ message: Message) {
@@ -81,22 +130,32 @@ public final class Agent: @unchecked Sendable {
         let queued = steeringQueue.drain()
         if !queued.isEmpty {
             do {
-                try await runLifecycle { [self] cancellation, emit in
-                    try await AgentLoop.run(
-                        prompts: queued,
-                        context: snapshotContext(),
-                        config: AgentLoopConfig(
-                            model: state.model,
-                            apiKeyResolver: apiKeyResolver,
-                            toolExecutor: toolExecutor,
-                            cwd: cwd,
-                            toolExecutionMode: toolExecutionMode
-                        ),
-                        emit: emit,
-                        cancellation: cancellation,
-                        streamFn: streamFn
-                    )
-                }
+                try await runLifecycle(
+                    makePrompts: { [self] cancellation in
+                        var effective: [Message] = []
+                        for message in queued {
+                            if case .user(let userMessage) = message, let hook = userPromptSubmit {
+                                let result = await hook(userMessage.text, cancellation)
+                                if result?.block == true { continue }
+                                let effectiveText = result?.modifiedText ?? userMessage.text
+                                effective.append(Message.user(UserMessage(text: effectiveText)))
+                            } else {
+                                effective.append(message)
+                            }
+                        }
+                        return effective.isEmpty ? nil : effective
+                    },
+                    executor: { [self] cancellation, emit, prompts in
+                        try await AgentLoop.run(
+                            prompts: prompts,
+                            context: snapshotContext(),
+                            config: makeLoopConfig(cancellation: cancellation),
+                            emit: emit,
+                            cancellation: cancellation,
+                            streamFn: streamFn
+                        )
+                    }
+                )
             } catch {
                 if let agentError = error as? AgentError, agentError == .alreadyRunning {
                     steeringQueue.prepend(contentsOf: queued)
@@ -115,22 +174,32 @@ public final class Agent: @unchecked Sendable {
             throw AgentError.cannotContinueFromAssistant
         }
 
-        try await runLifecycle { [self] cancellation, emit in
-            try await AgentLoop.run(
-                prompts: [],
-                context: snapshotContext(),
-                config: AgentLoopConfig(
-                    model: state.model,
-                    apiKeyResolver: apiKeyResolver,
-                    toolExecutor: toolExecutor,
-                    cwd: cwd,
-                    toolExecutionMode: toolExecutionMode
-                ),
-                emit: emit,
-                cancellation: cancellation,
-                streamFn: streamFn
-            )
-        }
+        try await runLifecycle(
+            makePrompts: { _ in [] },
+            executor: { [self] cancellation, emit, prompts in
+                try await AgentLoop.run(
+                    prompts: prompts,
+                    context: snapshotContext(),
+                    config: makeLoopConfig(cancellation: cancellation),
+                    emit: emit,
+                    cancellation: cancellation,
+                    streamFn: streamFn
+                )
+            }
+        )
+    }
+
+    private func makeLoopConfig(cancellation: CancellationHandle?) -> AgentLoopConfig {
+        AgentLoopConfig(
+            model: state.model,
+            apiKeyResolver: apiKeyResolver,
+            toolExecutor: toolExecutor,
+            cwd: cwd,
+            toolExecutionMode: toolExecutionMode,
+            beforeToolCall: beforeToolCall,
+            afterToolCall: afterToolCall,
+            betweenTurns: betweenTurns
+        )
     }
 
     public func abort() {
@@ -152,7 +221,8 @@ public final class Agent: @unchecked Sendable {
     }
 
     private func runLifecycle(
-        _ executor: @escaping @Sendable (_ cancellation: CancellationHandle, _ emit: @escaping AgentEventSink) async throws -> Void
+        makePrompts: @escaping @Sendable (_ cancellation: CancellationHandle) async throws -> [Message]?,
+        executor: @escaping @Sendable (_ cancellation: CancellationHandle, _ emit: @escaping AgentEventSink, _ prompts: [Message]) async throws -> Void
     ) async throws {
         try lock.withLock {
             if activeCancellation != nil { throw AgentError.alreadyRunning }
@@ -160,6 +230,20 @@ public final class Agent: @unchecked Sendable {
         }
 
         let cancellation = lock.withLock { activeCancellation! }
+
+        let prompts: [Message]
+        do {
+            guard let madePrompts = try await makePrompts(cancellation) else {
+                // Hook blocked the prompt; clean up without emitting events.
+                lock.withLock { activeCancellation = nil }
+                return
+            }
+            prompts = madePrompts
+        } catch {
+            lock.withLock { activeCancellation = nil }
+            throw error
+        }
+
         state.setStreaming(true)
         state.setStreamingMessage(nil)
         state.setErrorMessage(nil)
@@ -169,7 +253,7 @@ public final class Agent: @unchecked Sendable {
         }
 
         do {
-            try await executor(cancellation, emit)
+            try await executor(cancellation, emit, prompts)
         } catch {
             let failure = AssistantMessage(
                 content: [.text(TextContent(text: ""))],
@@ -197,7 +281,11 @@ public final class Agent: @unchecked Sendable {
 
         // Auto-compact after turn completes, before notifying waiters
         if let compactResult = state.maybeAutoCompact() {
-            let event = AgentEvent.contextCompacted(before: compactResult.before, after: compactResult.after)
+            let event = AgentEvent.contextCompacted(
+                before: compactResult.before,
+                after: compactResult.after,
+                messages: nil
+            )
             for listener in snapshotListeners() {
                 await listener(event, nil)
             }
@@ -224,6 +312,10 @@ public final class Agent: @unchecked Sendable {
         case .agentEnd:
             state.setStreamingMessage(nil)
             state.setStreaming(false)
+        case .contextCompacted(_, _, let messages):
+            if let messages = messages {
+                state.messages = messages
+            }
         case .toolExecutionStart, .toolExecutionEnd:
             break
         default:
