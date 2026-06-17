@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import ForgeLoopAI
+@testable import ForgeLoopTestSupport
 
 final class GeminiProviderTests: XCTestCase {
     private var testModel: Model {
@@ -242,13 +243,6 @@ data: {"candidates":[{"content":{"role":"model","parts":[{"text":"done"}]},"fini
         XCTAssertTrue(apis.contains("faux"))
         XCTAssertTrue(apis.contains("gemini"))
     }
-}
-
-private func text(from message: AssistantMessage) -> String {
-    message.content.compactMap { block -> String? in
-        if case .text(let t) = block { return t.text }
-        return nil
-    }.joined()
 }
 
 private struct CapturedGeminiRequest {

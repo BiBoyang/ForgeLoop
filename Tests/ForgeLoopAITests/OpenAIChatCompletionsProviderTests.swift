@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import ForgeLoopAI
+@testable import ForgeLoopTestSupport
 
 final class OpenAIChatCompletionsProviderTests: XCTestCase {
     private var testModel: Model {
@@ -433,13 +434,6 @@ data: [DONE]
         XCTAssertEqual(toolCalls.first?.name, "read")
         XCTAssertEqual(toolCalls.first?.arguments, "{\"path\":\"z.txt\"}")
     }
-}
-
-private func text(from message: AssistantMessage) -> String {
-    message.content.compactMap { block -> String? in
-        if case .text(let t) = block { return t.text }
-        return nil
-    }.joined()
 }
 
 private struct CapturedChatRequest {

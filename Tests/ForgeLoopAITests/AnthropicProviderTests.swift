@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import ForgeLoopAI
+@testable import ForgeLoopTestSupport
 
 final class AnthropicProviderTests: XCTestCase {
     private var testModel: Model {
@@ -320,13 +321,6 @@ data: {"type":"message_stop"}
         XCTAssertTrue(apis.contains("faux"))
         XCTAssertTrue(apis.contains("anthropic"))
     }
-}
-
-private func text(from message: AssistantMessage) -> String {
-    message.content.compactMap { block -> String? in
-        if case .text(let t) = block { return t.text }
-        return nil
-    }.joined()
 }
 
 private struct CapturedAnthropicRequest {

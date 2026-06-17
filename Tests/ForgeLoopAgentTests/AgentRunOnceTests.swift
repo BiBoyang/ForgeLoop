@@ -1,6 +1,7 @@
 import XCTest
 @testable import ForgeLoopAI
 @testable import ForgeLoopAgent
+@testable import ForgeLoopTestSupport
 
 private struct EchoTool: Tool {
     let name = "echo"
@@ -178,10 +179,4 @@ final class AgentRunOnceTests: XCTestCase {
     }
 }
 
-private actor StreamCallCounter {
-    var count = 0
-    func increment() -> Int {
-        count += 1
-        return count
-    }
-}
+

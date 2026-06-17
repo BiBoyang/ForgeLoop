@@ -1,14 +1,9 @@
 import XCTest
 @testable import ForgeLoopAI
 @testable import ForgeLoopAgent
+@testable import ForgeLoopTestSupport
 
 // MARK: - STEP-016: 发布前稳定性收尾
-
-private actor EventCollector {
-    private(set) var events: [AgentEvent] = []
-    func append(_ event: AgentEvent) { events.append(event) }
-    func count(of type: String) -> Int { events.filter { $0.type == type }.count }
-}
 
 @MainActor
 final class AgentStabilityTests: XCTestCase {
@@ -512,16 +507,6 @@ final class AgentStabilityTests: XCTestCase {
     }
 
     // MARK: - Helpers
-
-    private func makeStream(_ message: AssistantMessage) -> AssistantMessageStream {
-        let stream = AssistantMessageStream()
-        Task.detached {
-            stream.push(.start(partial: message))
-            stream.push(.done(reason: message.stopReason, message: message))
-            stream.end(message)
-        }
-        return stream
-    }
 
     /// 返回一个 streamFn：第一轮用给定的 stream，之后返回 endTurn stream（避免无限 tool loop）
     private func makeStreamFn(first: AssistantMessageStream) -> StreamFn {

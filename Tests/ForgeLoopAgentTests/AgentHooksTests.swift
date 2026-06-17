@@ -1,19 +1,7 @@
 import XCTest
 @testable import ForgeLoopAI
 @testable import ForgeLoopAgent
-
-private actor EventCollector {
-    private(set) var events: [AgentEvent] = []
-    func append(_ event: AgentEvent) { events.append(event) }
-}
-
-private actor StreamCallCounter {
-    var count = 0
-    func increment() -> Int {
-        count += 1
-        return count
-    }
-}
+@testable import ForgeLoopTestSupport
 
 private struct EchoTool: Tool {
     let name = "echo"

@@ -1,19 +1,7 @@
 import XCTest
 @testable import ForgeLoopAI
 @testable import ForgeLoopAgent
-
-private actor StreamCallCounter {
-    var count = 0
-    func increment() -> Int {
-        count += 1
-        return count
-    }
-}
-
-private actor EventCollector {
-    private(set) var events: [AgentEvent] = []
-    func append(_ event: AgentEvent) { events.append(event) }
-}
+@testable import ForgeLoopTestSupport
 
 private actor SubagentSignal {
     private var continuation: CheckedContinuation<Void, Never>?

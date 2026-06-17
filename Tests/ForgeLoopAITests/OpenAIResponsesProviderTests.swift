@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import ForgeLoopAI
+@testable import ForgeLoopTestSupport
 
 final class OpenAIResponsesProviderTests: XCTestCase {
     private var testModel: Model {
@@ -440,13 +441,6 @@ data: {"type":"response.completed"}
         XCTAssertEqual(callIds, ["call_1", "call_2", "call_3"])
         XCTAssertEqual(outputCallIds, ["call_1", "call_2", "call_3"])
     }
-}
-
-private func text(from message: AssistantMessage) -> String {
-    message.content.compactMap { block -> String? in
-        if case .text(let t) = block { return t.text }
-        return nil
-    }.joined()
 }
 
 private struct CapturedRequest {

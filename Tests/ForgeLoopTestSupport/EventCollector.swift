@@ -11,6 +11,10 @@ public actor EventCollector {
         events.append(event)
     }
 
+    public func count(of type: String) -> Int {
+        events.filter { $0.type == type }.count
+    }
+
     public func all() -> [AgentEvent] {
         events
     }
