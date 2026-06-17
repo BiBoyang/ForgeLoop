@@ -66,8 +66,8 @@ public struct SlashCommandRegistry {
     }
 
     public func execute(_ text: String, context: SlashCommandContext) async -> SubmitResult {
-        let parts = text.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
-        guard let commandName = parts.first.map(String.init) else {
+        let (commandName, argument) = Self.parseCommandText(text)
+        guard !commandName.isEmpty else {
             return .feedback("Unknown command")
         }
 
@@ -75,8 +75,31 @@ public struct SlashCommandRegistry {
             return .feedback("Unknown command: \(commandName). Available: \(availableCommandList)")
         }
 
-        let argument = parts.count > 1 ? String(parts[1]) : nil
         return await command.handler(argument, context)
+    }
+
+    /// Parses `/command arg1 "arg 2"` into ("/command", "arg1 \"arg 2\"").
+    /// Uses any whitespace as separator and strips surrounding quotes from the argument.
+    static func parseCommandText(_ text: String) -> (name: String, argument: String?) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else {
+            return (name: trimmed, argument: nil)
+        }
+
+        let withoutSlash = String(trimmed.dropFirst())
+        let parts = withoutSlash.split(separator: /\s+/, maxSplits: 1, omittingEmptySubsequences: true)
+        let name = "/" + String(parts.first ?? "")
+        let rawArgument = parts.count > 1 ? String(parts[1]) : nil
+        let argument = rawArgument.map { arg in
+            let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.count >= 2,
+               (trimmed.hasPrefix("\"") && trimmed.hasSuffix("\"")) ||
+               (trimmed.hasPrefix("'") && trimmed.hasSuffix("'")) {
+                return String(trimmed.dropFirst().dropLast())
+            }
+            return trimmed
+        }
+        return (name: name, argument: argument)
     }
 
     var availableCommandList: String {

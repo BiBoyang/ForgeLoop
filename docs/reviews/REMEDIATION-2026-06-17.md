@@ -280,7 +280,7 @@
 
 ---
 
-## P2-3 改进 `SlashCommandRegistry`
+## P2-3 改进 `SlashCommandRegistry` [DONE]
 
 | 项目 | 内容 |
 |---|---|

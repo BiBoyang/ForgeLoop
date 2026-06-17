@@ -52,12 +52,12 @@ let package = Package(
         ),
         .testTarget(
             name: "ForgeLoopAITests",
-            dependencies: ["ForgeLoopAI"],
+            dependencies: ["ForgeLoopAI", "ForgeLoopTestSupport"],
             path: "Tests/ForgeLoopAITests"
         ),
         .testTarget(
             name: "ForgeLoopAgentTests",
-            dependencies: ["ForgeLoopAgent", "ForgeLoopAI"],
+            dependencies: ["ForgeLoopAgent", "ForgeLoopAI", "ForgeLoopTestSupport"],
             path: "Tests/ForgeLoopAgentTests"
         ),
         .testTarget(
@@ -66,9 +66,15 @@ let package = Package(
                 "ForgeLoopCli",
                 "ForgeLoopAgent",
                 "ForgeLoopAI",
+                "ForgeLoopTestSupport",
                 .product(name: "ForgeLoopTUI", package: "ForgeLoopTUI"),
             ],
             path: "Tests/ForgeLoopCliTests"
+        ),
+        .testTarget(
+            name: "ForgeLoopTestSupport",
+            dependencies: ["ForgeLoopAI", "ForgeLoopAgent"],
+            path: "Tests/ForgeLoopTestSupport"
         ),
     ],
     swiftLanguageModes: [.v6]

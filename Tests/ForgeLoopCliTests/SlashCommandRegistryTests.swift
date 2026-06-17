@@ -73,6 +73,30 @@ final class SlashCommandRegistryTests: XCTestCase {
         }
     }
 
+    func testParseCommandTextSplitsOnAnyWhitespace() {
+        let parsed = SlashCommandRegistry.parseCommandText("/model   gpt-4o")
+        XCTAssertEqual(parsed.name, "/model")
+        XCTAssertEqual(parsed.argument, "gpt-4o")
+    }
+
+    func testParseCommandTextStripsDoubleQuotes() {
+        let parsed = SlashCommandRegistry.parseCommandText("/attach \"text hello world\"")
+        XCTAssertEqual(parsed.name, "/attach")
+        XCTAssertEqual(parsed.argument, "text hello world")
+    }
+
+    func testParseCommandTextStripsSingleQuotes() {
+        let parsed = SlashCommandRegistry.parseCommandText("/save 'my session'")
+        XCTAssertEqual(parsed.name, "/save")
+        XCTAssertEqual(parsed.argument, "my session")
+    }
+
+    func testParseCommandTextHandlesTabSeparator() {
+        let parsed = SlashCommandRegistry.parseCommandText("/model\tgpt-4o")
+        XCTAssertEqual(parsed.name, "/model")
+        XCTAssertEqual(parsed.argument, "gpt-4o")
+    }
+
     /// Regression test for P0-7: AppKit used to create a new empty AttachmentStore()
     /// for every slash command invocation, so /attach appeared to work but did not
     /// persist attachments. The registry must modify the store provided in the context.

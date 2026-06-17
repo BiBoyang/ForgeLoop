@@ -1,11 +1,7 @@
 import XCTest
 @testable import ForgeLoopAI
 @testable import ForgeLoopAgent
-
-private actor EventCollector {
-    private(set) var events: [AgentEvent] = []
-    func append(_ event: AgentEvent) { events.append(event) }
-}
+@testable import ForgeLoopTestSupport
 
 final class AgentLoopToolEventsTests: XCTestCase {
     private var testModel: Model {
@@ -15,24 +11,6 @@ final class AgentLoopToolEventsTests: XCTestCase {
             api: "faux",
             provider: "faux"
         )
-    }
-
-    private func makeStream(_ message: AssistantMessage) -> AssistantMessageStream {
-        let stream = AssistantMessageStream()
-        Task.detached {
-            stream.push(.start(partial: message))
-            stream.push(.done(reason: message.stopReason, message: message))
-            stream.end(message)
-        }
-        return stream
-    }
-
-    private actor StreamCallCounter {
-        var count = 0
-        func increment() -> Int {
-            count += 1
-            return count
-        }
     }
 
     private func runLoop(

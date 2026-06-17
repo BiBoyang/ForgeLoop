@@ -1,6 +1,7 @@
 import XCTest
 @testable import ForgeLoopAI
 @testable import ForgeLoopAgent
+@testable import ForgeLoopTestSupport
 
 final class BackgroundTaskTests: XCTestCase {
 
