@@ -22,7 +22,7 @@ Both `ForgeLoopCli` and `ForgeLoopApp` share `SessionCoordinator`, which owns an
 - the app uses ASCII `"..."` truncation in table cells
 - the real call site is `TranscriptRenderer(markdownOptions:)` in `ForgeLoopCli`
 
-If you want to tune this app-level behavior, update `forgeLoopMarkdownRenderOptions()` in `Sources/ForgeLoopCli/CodingTUI.swift`.
+If you want to tune this app-level behavior, update `forgeLoopMarkdownRenderOptions()` in `Sources/ForgeLoopCli/CodingTUIStatus.swift`.
 
 ## Terminal Interaction
 
