@@ -15,10 +15,12 @@ final class TabSession {
     var bgTaskLines: [String] = []
     var footerNotice: String? = nil
     var messageSegments: [AppController.MessageSegment] = []
+    let attachmentStore: AttachmentStore
 
-    init(id: String, agent: Agent, transcript: TranscriptRenderer) {
+    init(id: String, agent: Agent, transcript: TranscriptRenderer, attachmentStore: AttachmentStore = AttachmentStore()) {
         self.id = id
         self.agent = agent
         self.transcript = transcript
+        self.attachmentStore = attachmentStore
     }
 }

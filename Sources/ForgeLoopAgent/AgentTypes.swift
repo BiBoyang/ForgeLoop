@@ -22,6 +22,7 @@ public enum AgentError: Error, Equatable {
     case alreadyRunning
     case noMessagesToContinue
     case cannotContinueFromAssistant
+    case cannotModifyStateWhileStreaming
 }
 
 public enum AgentEvent: Sendable {

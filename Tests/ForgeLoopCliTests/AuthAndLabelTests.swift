@@ -227,4 +227,59 @@ final class AuthAndLabelTests: XCTestCase {
 
         XCTAssertEqual(store.load(), "sk-key", "Load should trim whitespace")
     }
+
+    func testCredentialStoreSetsRestrictedPermissions() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fileURL = tempDir.appendingPathComponent("credentials.json")
+        let store = CredentialStore(fileURL: fileURL)
+
+        store.save(apiKey: "sk-secret-key")
+
+        let dirAttributes = try? FileManager.default.attributesOfItem(atPath: tempDir.path)
+        let fileAttributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
+
+        let dirPermissions = dirAttributes?[.posixPermissions] as? NSNumber
+        let filePermissions = fileAttributes?[.posixPermissions] as? NSNumber
+
+        XCTAssertEqual(dirPermissions?.int16Value, 0o700, "Config directory should be owner-only")
+        XCTAssertEqual(filePermissions?.int16Value, 0o600, "Credential file should be owner-only")
+    }
+
+    func testRunLoginSavesProvidedKey() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fileURL = tempDir.appendingPathComponent("credentials.json")
+        let store = CredentialStore(fileURL: fileURL)
+
+        try await ForgeLoop.runLogin(
+            credentialStore: store,
+            inputProvider: { "sk-test-login-key" }
+        )
+
+        XCTAssertEqual(store.load(), "sk-test-login-key")
+    }
+
+    func testRunLoginRejectsBlankInput() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fileURL = tempDir.appendingPathComponent("credentials.json")
+        let store = CredentialStore(fileURL: fileURL)
+
+        do {
+            try await ForgeLoop.runLogin(
+                credentialStore: store,
+                inputProvider: { "   " }
+            )
+            XCTFail("Expected missing API key error")
+        } catch {
+            XCTAssertTrue("\(error)".contains("API key is required"))
+        }
+    }
 }

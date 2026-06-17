@@ -12,14 +12,17 @@ public enum ForgeLoop {
         )
     }
 
-    public static func runLogin() async throws {
-        print("Enter your API key: ", terminator: "")
-        guard let input = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines), !input.isEmpty else {
+    public static func runLogin(
+        credentialStore: CredentialStore = CredentialStore(),
+        inputProvider: @escaping @Sendable () -> String? = { readHiddenInput(prompt: "Enter your API key: ") }
+    ) async throws {
+        guard let input = inputProvider()?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !input.isEmpty else {
             throw LoginError.missingAPIKey
         }
 
-        let store = CredentialStore()
-        store.save(apiKey: input)
+        credentialStore.save(apiKey: input)
 
         // Verify the key works by registering providers
         _ = await registerBuiltins(storedAPIKey: input)

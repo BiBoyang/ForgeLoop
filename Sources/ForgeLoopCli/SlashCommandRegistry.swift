@@ -28,13 +28,13 @@ struct SlashCommand {
     let names: [String]
     let usage: String
     let summary: String
-    let handler: @MainActor @Sendable (_ argument: String?, _ context: SlashCommandContext) -> PromptController.SubmitResult
+    let handler: @MainActor @Sendable (_ argument: String?, _ context: SlashCommandContext) async -> PromptController.SubmitResult
 
     init(
         names: [String],
         usage: String,
         summary: String,
-        handler: @escaping @MainActor @Sendable (_ argument: String?, _ context: SlashCommandContext) -> PromptController.SubmitResult
+        handler: @escaping @MainActor @Sendable (_ argument: String?, _ context: SlashCommandContext) async -> PromptController.SubmitResult
     ) {
         self.names = names
         self.usage = usage
@@ -65,7 +65,7 @@ public struct SlashCommandRegistry {
         commands.first(where: { $0.matches(name) })
     }
 
-    public func execute(_ text: String, context: SlashCommandContext) -> PromptController.SubmitResult {
+    public func execute(_ text: String, context: SlashCommandContext) async -> PromptController.SubmitResult {
         let parts = text.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
         guard let commandName = parts.first.map(String.init) else {
             return .feedback("Unknown command")
@@ -76,7 +76,7 @@ public struct SlashCommandRegistry {
         }
 
         let argument = parts.count > 1 ? String(parts[1]) : nil
-        return command.handler(argument, context)
+        return await command.handler(argument, context)
     }
 
     var availableCommandList: String {
@@ -128,7 +128,7 @@ public func makeDefaultSlashCommandRegistry() -> SlashCommandRegistry {
                 names: ["/model"],
                 usage: "/model [id]",
                 summary: "Open picker or switch model"
-            ) { argument, context in
+            ) { argument, context async in
                 let trimmed = argument?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if trimmed.isEmpty {
                     let model = context.agent.state.model
@@ -138,9 +138,14 @@ public func makeDefaultSlashCommandRegistry() -> SlashCommandRegistry {
                     return .showModelPicker(makeModelPickerState(currentModel: model))
                 }
 
-                context.agent.state.model = switchedModel(from: context.agent.state.model, to: trimmed)
-                context.modelStore?.save(context.agent.state.model)
-                return .feedback("Switched to model: \(trimmed)")
+                let newModel = context.agent.state.model.switched(to: trimmed)
+                do {
+                    try await context.agent.switchModel(to: newModel)
+                    context.modelStore?.save(context.agent.state.model)
+                    return .feedback("Switched to model: \(trimmed)")
+                } catch {
+                    return .feedback("Failed to switch model: \(error)")
+                }
             },
             SlashCommand(
                 names: ["/compact"],
@@ -148,15 +153,19 @@ public func makeDefaultSlashCommandRegistry() -> SlashCommandRegistry {
                 summary: "Compact conversation context"
             ) { _, context in
                 let before = context.agent.state.messages.count
-                context.agent.state.compact()
-                let after = context.agent.state.messages.count
-                return .feedback("Compacted context: \(before) → \(after) messages")
+                do {
+                    try await context.agent.compactContext()
+                    let after = context.agent.state.messages.count
+                    return .feedback("Compacted context: \(before) → \(after) messages")
+                } catch {
+                    return .feedback("Failed to compact context: \(error)")
+                }
             },
             SlashCommand(
                 names: ["/queue"],
                 usage: "/queue [clear]",
                 summary: "Show or clear queued steering messages"
-            ) { argument, context in
+            ) { argument, context async in
                 let trimmed = argument?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
                 if trimmed == "clear" {
@@ -185,7 +194,7 @@ public func makeDefaultSlashCommandRegistry() -> SlashCommandRegistry {
                 names: ["/attach"],
                 usage: "/attach text <content> | /attach path <path>",
                 summary: "Add an attachment"
-            ) { argument, context in
+            ) { argument, context async in
                 let trimmed = argument?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if trimmed.isEmpty {
                     return .feedback("Usage: /attach text <content> or /attach path <path>")
@@ -214,7 +223,7 @@ public func makeDefaultSlashCommandRegistry() -> SlashCommandRegistry {
                 names: ["/attachments"],
                 usage: "/attachments [clear]",
                 summary: "List or clear attachments"
-            ) { argument, context in
+            ) { argument, context async in
                 let trimmed = argument?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
                 if trimmed == "clear" {
@@ -236,7 +245,7 @@ public func makeDefaultSlashCommandRegistry() -> SlashCommandRegistry {
                 names: ["/detach"],
                 usage: "/detach <index> | /detach all",
                 summary: "Remove attachment(s)"
-            ) { argument, context in
+            ) { argument, context async in
                 let trimmed = argument?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if trimmed.isEmpty {
                     return .feedback("Usage: /detach <index> or /detach all")
@@ -263,7 +272,7 @@ public func makeDefaultSlashCommandRegistry() -> SlashCommandRegistry {
                 names: ["/save"],
                 usage: "/save [name]",
                 summary: "Save current session"
-            ) { argument, context in
+            ) { argument, context async in
                 if context.agent.state.isStreaming {
                     return .feedback("Cannot save while streaming")
                 }
@@ -287,7 +296,7 @@ public func makeDefaultSlashCommandRegistry() -> SlashCommandRegistry {
                 names: ["/load"],
                 usage: "/load <name>",
                 summary: "Load a saved session"
-            ) { argument, context in
+            ) { argument, context async in
                 if context.agent.state.isStreaming {
                     return .feedback("Cannot load while streaming")
                 }
@@ -302,14 +311,11 @@ public func makeDefaultSlashCommandRegistry() -> SlashCommandRegistry {
                         return .feedback("Session not found: \(trimmed)")
                     }
 
-                    context.agent.state.messages = record.messages
-                    if record.modelID != context.agent.state.model.id {
-                        context.agent.state.model = switchedModel(
-                            from: context.agent.state.model,
-                            to: record.modelID
-                        )
-                        context.modelStore?.save(context.agent.state.model)
-                    }
+                    try await context.agent.restoreSession(
+                        messages: record.messages,
+                        modelID: record.modelID
+                    )
+                    context.modelStore?.save(context.agent.state.model)
 
                     return .feedback("Loaded session: \(trimmed) (\(record.messages.count) messages)")
                 } catch {
@@ -342,7 +348,7 @@ public func makeDefaultSlashCommandRegistry() -> SlashCommandRegistry {
                 names: ["/export"],
                 usage: "/export [name]",
                 summary: "Export conversation as Markdown to the desktop"
-            ) { argument, context in
+            ) { argument, context async in
                 let trimmed = argument?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let fileName = trimmed.isEmpty ? "forgeloop-export.md" : "\(trimmed).md"
 

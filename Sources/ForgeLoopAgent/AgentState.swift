@@ -21,17 +21,17 @@ public final class AgentState: @unchecked Sendable {
         self._messages = messages
     }
 
-    public var systemPrompt: String {
+    public internal(set) var systemPrompt: String {
         get { lock.withLock { _systemPrompt } }
         set { lock.withLock { _systemPrompt = newValue } }
     }
 
-    public var model: Model {
+    public internal(set) var model: Model {
         get { lock.withLock { _model } }
         set { lock.withLock { _model = newValue } }
     }
 
-    public var messages: [Message] {
+    public internal(set) var messages: [Message] {
         get { lock.withLock { _messages } }
         set { lock.withLock { _messages = Array(newValue) } }
     }

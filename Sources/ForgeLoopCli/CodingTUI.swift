@@ -330,11 +330,11 @@ func runCodingTUIInternal(
 
     // Auto-restore last session if it exists
     if let lastSession = try? sessionStore.load(name: "last"), !lastSession.messages.isEmpty {
-        agent.state.messages = lastSession.messages
-        if lastSession.modelID != agent.state.model.id {
-            agent.state.model = switchedModel(from: agent.state.model, to: lastSession.modelID)
-            modelStore.save(agent.state.model)
-        }
+        try? await agent.restoreSession(
+            messages: lastSession.messages,
+            modelID: lastSession.modelID
+        )
+        modelStore.save(agent.state.model)
     }
 
     func saveLastSession() {

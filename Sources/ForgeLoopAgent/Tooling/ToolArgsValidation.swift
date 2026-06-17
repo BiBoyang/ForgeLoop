@@ -7,6 +7,7 @@ public enum ToolArgType: Sendable {
     case int
     case bool
     case numberOrString // 兼容 number 和数字字符串（如 timeoutMs）
+    case stringArray // 字符串数组
 }
 
 public struct ToolArgField: Sendable {
@@ -92,6 +93,10 @@ public struct ValidatedArgs: @unchecked Sendable {
 
     public func has(_ key: String) -> Bool {
         raw[key] != nil
+    }
+
+    public func stringArray(_ key: String) -> [String]? {
+        raw[key] as? [String]
     }
 }
 
@@ -204,6 +209,9 @@ private func isValidType(value: Any, expected: ToolArgType) -> Bool {
             return Int(str) != nil
         }
         return false
+    case .stringArray:
+        guard let array = value as? [Any] else { return false }
+        return array.allSatisfy { $0 is String }
     }
 }
 
@@ -213,5 +221,6 @@ private func typeDescription(_ type: ToolArgType) -> String {
     case .int: return "int"
     case .bool: return "bool"
     case .numberOrString: return "number or numeric string"
+    case .stringArray: return "array of strings"
     }
 }

@@ -40,69 +40,70 @@ public final class StreamState: @unchecked Sendable {
     private var finalMessage: AssistantMessage?
 
     func push(_ event: AssistantMessageEvent) {
-        lock.lock()
-        if ended {
-            lock.unlock()
-            return
+        let waiter: CheckedContinuation<AssistantMessageEvent?, Never>? = lock.withLock {
+            if ended { return nil }
+            if let waiter = eventWaiters.first {
+                eventWaiters.removeFirst()
+                return waiter
+            }
+            buffer.append(event)
+            return nil
         }
-        if let waiter = eventWaiters.first {
-            eventWaiters.removeFirst()
-            lock.unlock()
-            waiter.resume(returning: event)
-            return
-        }
-        buffer.append(event)
-        lock.unlock()
+        waiter?.resume(returning: event)
     }
 
     func end(_ message: AssistantMessage) {
-        let eventWaitersToNotify: [CheckedContinuation<AssistantMessageEvent?, Never>]
-        let resultWaitersToNotify: [CheckedContinuation<AssistantMessage, Never>]
-        lock.lock()
-        if ended {
-            lock.unlock()
-            return
+        let (eventWaitersToNotify, resultWaitersToNotify): (
+            [CheckedContinuation<AssistantMessageEvent?, Never>],
+            [CheckedContinuation<AssistantMessage, Never>]
+        ) = lock.withLock {
+            if ended { return ([], []) }
+            ended = true
+            finalMessage = message
+            let ew = eventWaiters
+            eventWaiters.removeAll()
+            let rw = resultWaiters
+            resultWaiters.removeAll()
+            return (ew, rw)
         }
-        ended = true
-        finalMessage = message
-        eventWaitersToNotify = eventWaiters
-        eventWaiters.removeAll()
-        resultWaitersToNotify = resultWaiters
-        resultWaiters.removeAll()
-        lock.unlock()
         for w in eventWaitersToNotify { w.resume(returning: nil) }
         for w in resultWaitersToNotify { w.resume(returning: message) }
     }
 
     func nextEvent() async -> AssistantMessageEvent? {
         await withCheckedContinuation { (cont: CheckedContinuation<AssistantMessageEvent?, Never>) in
-            lock.lock()
-            if !buffer.isEmpty {
-                let event = buffer.removeFirst()
-                lock.unlock()
-                cont.resume(returning: event)
-                return
+            lock.withLock {
+                if !buffer.isEmpty {
+                    let event = buffer.removeFirst()
+                    cont.resume(returning: event)
+                    return
+                }
+                if ended {
+                    cont.resume(returning: nil)
+                    return
+                }
+                eventWaiters.append(cont)
             }
-            if ended {
-                lock.unlock()
-                cont.resume(returning: nil)
-                return
-            }
-            eventWaiters.append(cont)
-            lock.unlock()
         }
     }
 
     func awaitResult() async -> AssistantMessage {
         await withCheckedContinuation { (cont: CheckedContinuation<AssistantMessage, Never>) in
-            lock.lock()
-            if let message = finalMessage {
-                lock.unlock()
-                cont.resume(returning: message)
-                return
+            lock.withLock {
+                if let message = finalMessage {
+                    cont.resume(returning: message)
+                    return
+                }
+                resultWaiters.append(cont)
             }
-            resultWaiters.append(cont)
-            lock.unlock()
         }
+    }
+}
+
+extension NSLock {
+    fileprivate func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock()
+        defer { unlock() }
+        return try body()
     }
 }

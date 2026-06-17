@@ -21,13 +21,19 @@ public enum ProcessRunner {
 
     public static func run(
         command: String,
+        args: [String]? = nil,
         cwd: String,
         timeoutMs: Int? = nil,
         cancellation: CancellationHandle?
     ) async -> ProcessResult {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", command]
+        if let args = args {
+            process.executableURL = URL(fileURLWithPath: command)
+            process.arguments = args
+        } else {
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", command]
+        }
         if !cwd.isEmpty {
             process.currentDirectoryURL = URL(fileURLWithPath: cwd)
         }

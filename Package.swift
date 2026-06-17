@@ -14,7 +14,7 @@ let package = Package(
         .executable(name: "ForgeLoopApp", targets: ["ForgeLoopApp"]),
     ],
     dependencies: [
-        .package(path: "../ForgeLoopTUI"),
+        .package(url: "https://github.com/BiBoyang/ForgeLoopTUI.git", from: "1.2.0"),
     ],
     targets: [
         .target(

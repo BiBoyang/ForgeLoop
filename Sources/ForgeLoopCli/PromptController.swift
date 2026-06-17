@@ -62,16 +62,6 @@ func makeModelPickerState(currentModel: Model) -> ListPickerState {
     )
 }
 
-public func switchedModel(from currentModel: Model, to modelId: String) -> Model {
-    Model(
-        id: modelId,
-        name: modelId,
-        api: currentModel.api,
-        provider: currentModel.provider,
-        baseUrl: currentModel.baseUrl
-    )
-}
-
 @MainActor
 public struct PromptController {
     let agent: Agent
@@ -124,7 +114,7 @@ public struct PromptController {
     }
 
     private func handleSlashCommand(_ text: String) async -> SubmitResult {
-        slashCommandRegistry.execute(
+        await slashCommandRegistry.execute(
             text,
             context: SlashCommandContext(
                 agent: agent,

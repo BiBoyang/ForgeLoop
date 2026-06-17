@@ -89,4 +89,53 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertTrue(loaded?.messages.isEmpty ?? false)
         XCTAssertEqual(loaded?.messageCount, 0)
     }
+
+    // MARK: - Path traversal protection
+
+    func testSaveWithDotDotNameThrows() throws {
+        let store = SessionStore(directoryURL: tempDir)
+        XCTAssertThrowsError(try store.save(name: "../evil", modelID: "gpt-4", messages: [])) { error in
+            XCTAssertTrue("\(error)".contains("Invalid session name"))
+        }
+    }
+
+    func testSaveWithSlashNameThrows() throws {
+        let store = SessionStore(directoryURL: tempDir)
+        XCTAssertThrowsError(try store.save(name: "foo/bar", modelID: "gpt-4", messages: [])) { error in
+            XCTAssertTrue("\(error)".contains("Invalid session name"))
+        }
+    }
+
+    func testSaveWithHiddenNameThrows() throws {
+        let store = SessionStore(directoryURL: tempDir)
+        XCTAssertThrowsError(try store.save(name: ".hidden", modelID: "gpt-4", messages: [])) { error in
+            XCTAssertTrue("\(error)".contains("Invalid session name"))
+        }
+    }
+
+    func testLoadWithDotDotNameThrows() throws {
+        let store = SessionStore(directoryURL: tempDir)
+        XCTAssertThrowsError(try store.load(name: "../evil")) { error in
+            XCTAssertTrue("\(error)".contains("Invalid session name"))
+        }
+    }
+
+    func testDeleteWithDotDotNameThrows() throws {
+        let store = SessionStore(directoryURL: tempDir)
+        XCTAssertThrowsError(try store.delete(name: "../evil")) { error in
+            XCTAssertTrue("\(error)".contains("Invalid session name"))
+        }
+    }
+
+    // MARK: - File permissions
+
+    func testSavedSessionFileHasRestrictedPermissions() throws {
+        let store = SessionStore(directoryURL: tempDir)
+        try store.save(name: "secure", modelID: "gpt-4", messages: [.user(UserMessage(text: "x"))])
+
+        let fileURL = tempDir.appendingPathComponent("secure.json")
+        let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let permissions = attributes[.posixPermissions] as? NSNumber
+        XCTAssertEqual(permissions?.int16Value, 0o600, "Session file should be owner-only")
+    }
 }

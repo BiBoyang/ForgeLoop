@@ -1,0 +1,15 @@
+{
+  "originHash" : "69ee127d36073f276fc17e59c932025b98b5b56403a1874dc6d66956d7be3a6f",
+  "pins" : [
+    {
+      "identity" : "forgelooptui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/BiBoyang/ForgeLoopTUI.git",
+      "state" : {
+        "revision" : "076114b8170ac8e64408ac024556730e2c85f368",
+        "version" : "1.2.0"
+      }
+    }
+  ],
+  "version" : 3
+}

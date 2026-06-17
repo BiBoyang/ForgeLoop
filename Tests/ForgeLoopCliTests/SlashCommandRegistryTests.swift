@@ -31,11 +31,11 @@ final class SlashCommandRegistryTests: XCTestCase {
         XCTAssertNotNil(registry.command(named: "/exit"))
     }
 
-    func testDefaultRegistryResolvesQuitAlias() {
+    func testDefaultRegistryResolvesQuitAlias() async {
         let registry = makeDefaultSlashCommandRegistry()
         let agent = Agent(initialState: AgentInitialState(model: testModel))
 
-        let result = registry.execute(
+        let result = await registry.execute(
             "/quit",
             context: SlashCommandContext(agent: agent, modelStore: nil, attachmentStore: AttachmentStore())
         )
@@ -57,11 +57,11 @@ final class SlashCommandRegistryTests: XCTestCase {
         XCTAssertTrue(helpText.contains("/exit, /quit"))
     }
 
-    func testUnknownCommandUsesRegistryAvailableList() {
+    func testUnknownCommandUsesRegistryAvailableList() async {
         let registry = makeDefaultSlashCommandRegistry()
         let agent = Agent(initialState: AgentInitialState(model: testModel))
 
-        let result = registry.execute(
+        let result = await registry.execute(
             "/unknown",
             context: SlashCommandContext(agent: agent, modelStore: nil, attachmentStore: AttachmentStore())
         )
@@ -71,5 +71,27 @@ final class SlashCommandRegistryTests: XCTestCase {
         } else {
             XCTFail("Expected feedback result")
         }
+    }
+
+    /// Regression test for P0-7: AppKit used to create a new empty AttachmentStore()
+    /// for every slash command invocation, so /attach appeared to work but did not
+    /// persist attachments. The registry must modify the store provided in the context.
+    func testAttachCommandModifiesProvidedAttachmentStore() async {
+        let registry = makeDefaultSlashCommandRegistry()
+        let agent = Agent(initialState: AgentInitialState(model: testModel))
+        let sharedStore = AttachmentStore()
+
+        _ = await registry.execute(
+            "/attach text hello",
+            context: SlashCommandContext(
+                agent: agent,
+                modelStore: nil,
+                attachmentStore: sharedStore,
+                sessionStore: SessionStore()
+            )
+        )
+
+        XCTAssertEqual(sharedStore.count, 1)
+        XCTAssertEqual(sharedStore.list().first?.kind, .text("hello"))
     }
 }

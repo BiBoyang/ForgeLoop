@@ -220,6 +220,61 @@ public final class Agent: @unchecked Sendable {
         }
     }
 
+    // MARK: - State mutation API (enforced by Agent, not written by CLI/App)
+
+    /// Switches the agent's model. Throws if the agent is currently streaming.
+    public func switchModel(to newModel: Model) async throws {
+        guard !state.isStreaming else {
+            throw AgentError.cannotModifyStateWhileStreaming
+        }
+        state.model = newModel
+    }
+
+    /// Replaces the agent's message history and optionally switches the model.
+    /// Throws if the agent is currently streaming.
+    public func restoreSession(messages: [Message], model: Model? = nil) async throws {
+        guard !state.isStreaming else {
+            throw AgentError.cannotModifyStateWhileStreaming
+        }
+        state.setStreamingMessage(nil)
+        state.setErrorMessage(nil)
+        state.messages = messages
+        if let model = model {
+            state.model = model
+        }
+    }
+
+    /// Convenience overload that switches model only when `modelID` differs from the current one.
+    /// Throws if the agent is currently streaming.
+    public func restoreSession(messages: [Message], modelID: String?) async throws {
+        let model: Model?
+        if let modelID = modelID, modelID != state.model.id {
+            model = state.model.switched(to: modelID)
+        } else {
+            model = nil
+        }
+        try await restoreSession(messages: messages, model: model)
+    }
+
+    /// Explicitly compacts the conversation context. Emits `.contextCompacted` to listeners.
+    /// Throws if the agent is currently streaming.
+    public func compactContext(keepLast: Int = 10) async throws {
+        guard !state.isStreaming else {
+            throw AgentError.cannotModifyStateWhileStreaming
+        }
+        let before = state.messages.count
+        state.compact(keepLast: keepLast)
+        let after = state.messages.count
+        let event = AgentEvent.contextCompacted(
+            before: before,
+            after: after,
+            messages: nil
+        )
+        for listener in snapshotListeners() {
+            await listener(event, nil)
+        }
+    }
+
     private func runLifecycle(
         makePrompts: @escaping @Sendable (_ cancellation: CancellationHandle) async throws -> [Message]?,
         executor: @escaping @Sendable (_ cancellation: CancellationHandle, _ emit: @escaping AgentEventSink, _ prompts: [Message]) async throws -> Void

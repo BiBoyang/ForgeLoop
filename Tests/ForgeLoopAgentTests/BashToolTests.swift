@@ -65,7 +65,7 @@ final class BashToolTests: XCTestCase {
     func testStderrCaptured() async throws {
         let tool = BashTool()
         let result = await tool.execute(
-            arguments: "{\"command\":\"echo error-msg >&2\"}",
+            arguments: "{\"command\":\"/usr/bin/python3\",\"args\":[\"-c\",\"import sys; sys.stderr.write('error-msg\\\\n')\"]}",
             cwd: "/tmp",
             cancellation: nil
         )
@@ -172,7 +172,7 @@ final class BashToolTests: XCTestCase {
     func testPagerEnvironmentVariablesInjected() async throws {
         let tool = BashTool()
         let result = await tool.execute(
-            arguments: "{\"command\":\"printf '%s|%s' \\\"$PAGER\\\" \\\"$GIT_PAGER\\\"\"}",
+            arguments: "{\"command\":\"/usr/bin/python3\",\"args\":[\"-c\",\"import os; print(os.environ.get('PAGER','') + '|' + os.environ.get('GIT_PAGER',''))\"]}",
             cwd: "/tmp",
             cancellation: nil
         )
@@ -237,7 +237,7 @@ final class BashToolTests: XCTestCase {
     func testLargeOutputHandled() async throws {
         let tool = BashTool()
         let result = await tool.execute(
-            arguments: "{\"command\":\"yes | head -n 10000\"}",
+            arguments: "{\"command\":\"/usr/bin/python3\",\"args\":[\"-c\",\"for i in range(10000): print('y')\"]}",
             cwd: "/tmp",
             cancellation: nil
         )
@@ -245,5 +245,81 @@ final class BashToolTests: XCTestCase {
         XCTAssertFalse(result.isError)
         // 输出可能被截断，但至少应该有内容
         XCTAssertFalse(result.output.isEmpty)
+    }
+
+    // MARK: - 命令注入防护
+
+    func testSemicolonInjectionIsRejected() async throws {
+        let tool = BashTool()
+        let result = await tool.execute(
+            arguments: "{\"command\":\"echo hello; cat /etc/passwd\"}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("forbidden shell metacharacters"))
+    }
+
+    func testCommandSubstitutionInjectionIsRejected() async throws {
+        let tool = BashTool()
+        let result = await tool.execute(
+            arguments: "{\"command\":\"echo $(id)\"}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("forbidden shell metacharacters"))
+    }
+
+    func testBacktickCommandSubstitutionInjectionIsRejected() async throws {
+        let tool = BashTool()
+        let result = await tool.execute(
+            arguments: "{\"command\":\"echo `id`\"}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("forbidden shell metacharacters"))
+    }
+
+    func testPipeInjectionIsRejected() async throws {
+        let tool = BashTool()
+        let result = await tool.execute(
+            arguments: "{\"command\":\"echo hello | cat /etc/passwd\"}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertTrue(result.output.contains("forbidden shell metacharacters"))
+    }
+
+    // MARK: - args 模式（不走 shell）
+
+    func testArgsModeRunsWithoutShell() async throws {
+        let tool = BashTool()
+        let result = await tool.execute(
+            arguments: "{\"command\":\"/bin/echo\",\"args\":[\"hello\"]}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        XCTAssertFalse(result.isError)
+        XCTAssertTrue(result.output.contains("hello"))
+    }
+
+    func testArgsModeWithSpacesRunsWithoutShell() async throws {
+        let tool = BashTool()
+        let result = await tool.execute(
+            arguments: "{\"command\":\"/bin/echo\",\"args\":[\"hello world\"]}",
+            cwd: "/tmp",
+            cancellation: nil
+        )
+
+        XCTAssertFalse(result.isError)
+        XCTAssertTrue(result.output.contains("hello world"))
     }
 }

@@ -138,14 +138,14 @@ final class SlashCommandsTests: XCTestCase {
     func testCompactCommandReducesMessages() async throws {
         let agent = Agent(initialState: AgentInitialState(model: testModel))
         // Add some dummy messages
-        agent.state.messages = [
+        try await agent.restoreSession(messages: [
             .user(UserMessage(text: "msg1")),
             .assistant(AssistantMessage.text("resp1")),
             .user(UserMessage(text: "msg2")),
             .assistant(AssistantMessage.text("resp2")),
             .user(UserMessage(text: "msg3")),
             .assistant(AssistantMessage.text("resp3")),
-        ]
+        ])
 
         let controller = PromptController(agent: agent)
         let result = try await controller.submit("/compact")
@@ -162,10 +162,10 @@ final class SlashCommandsTests: XCTestCase {
 
     func testCompactCommandNoOpWhenBelowThreshold() async throws {
         let agent = Agent(initialState: AgentInitialState(model: testModel))
-        agent.state.messages = [
+        try await agent.restoreSession(messages: [
             .user(UserMessage(text: "msg1")),
             .assistant(AssistantMessage.text("resp1")),
-        ]
+        ])
 
         let controller = PromptController(agent: agent)
         let result = try await controller.submit("/compact")

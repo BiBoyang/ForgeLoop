@@ -35,5 +35,12 @@ public func registerBuiltins(
         registered.append(anthropic.api)
     }
 
+    let geminiKey = environment["GEMINI_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let apiKey = geminiKey, !apiKey.isEmpty {
+        let gemini = GeminiProvider(defaultAPIKey: apiKey)
+        await APIRegistry.shared.register(gemini, sourceId: sourceId)
+        registered.append(gemini.api)
+    }
+
     return registered
 }

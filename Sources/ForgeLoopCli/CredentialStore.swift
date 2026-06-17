@@ -31,11 +31,24 @@ public final class CredentialStore: @unchecked Sendable {
         }
         let dict: [String: String] = ["apiKey": trimmed]
         guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return }
+
+        let directoryURL = fileURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(
-            at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+            at: directoryURL,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
         )
-        try? data.write(to: fileURL)
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: directoryURL.path
+        )
+
+        // 原子写入，避免并发或崩溃时文件损坏。
+        try? data.write(to: fileURL, options: .atomic)
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: fileURL.path
+        )
     }
 
     public func clear() {

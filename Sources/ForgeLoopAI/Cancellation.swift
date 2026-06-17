@@ -31,13 +31,15 @@ public final class CancellationHandle: @unchecked Sendable {
     }
 
     public func onCancel(_ callback: @escaping @Sendable (String?) -> Void) {
-        let fireNow: String? = lock.withLock {
-            if _isCancelled { return reasonValue }
+        let (shouldFire, reason): (Bool, String?) = lock.withLock {
+            if _isCancelled {
+                return (true, reasonValue)
+            }
             handlers.append(callback)
-            return nil
+            return (false, nil)
         }
-        if fireNow != nil {
-            callback(fireNow)
+        if shouldFire {
+            callback(reason)
         }
     }
 }

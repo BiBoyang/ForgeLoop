@@ -20,6 +20,17 @@ public struct Model: Sendable, Hashable, Codable {
         self.provider = provider
         self.baseUrl = baseUrl
     }
+
+    /// Returns a new Model with the same api/provider/baseUrl but a different id/name.
+    public func switched(to newID: String) -> Model {
+        Model(
+            id: newID,
+            name: newID,
+            api: api,
+            provider: provider,
+            baseUrl: baseUrl
+        )
+    }
 }
 
 public struct Context: Sendable, Hashable, Codable {
