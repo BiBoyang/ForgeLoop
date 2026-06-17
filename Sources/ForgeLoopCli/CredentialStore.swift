@@ -4,6 +4,7 @@ import Foundation
 /// 存储位置：~/.config/forgeloop/credentials.json
 public final class CredentialStore: @unchecked Sendable {
     private let fileURL: URL
+    private let lock = NSLock()
 
     public init(fileURL: URL? = nil) {
         if let fileURL = fileURL {
@@ -16,6 +17,8 @@ public final class CredentialStore: @unchecked Sendable {
     }
 
     public func load() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
         guard let data = try? Data(contentsOf: fileURL),
               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String]
         else { return nil }
@@ -24,9 +27,11 @@ public final class CredentialStore: @unchecked Sendable {
     }
 
     public func save(apiKey: String) {
+        lock.lock()
+        defer { lock.unlock() }
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            clear()
+            try? FileManager.default.removeItem(at: fileURL)
             return
         }
         let dict: [String: String] = ["apiKey": trimmed]
@@ -52,6 +57,8 @@ public final class CredentialStore: @unchecked Sendable {
     }
 
     public func clear() {
+        lock.lock()
+        defer { lock.unlock() }
         try? FileManager.default.removeItem(at: fileURL)
     }
 }

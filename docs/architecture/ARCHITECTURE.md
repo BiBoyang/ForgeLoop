@@ -18,22 +18,28 @@
 - 队列与取消：`PendingMessageQueue`、`CancellationHandle`
 
 ### ForgeLoopCli
+- 共享会话逻辑：`SessionCoordinator`（持有一个 `Agent` + `AttachmentStore` + `ModelStore` + `SessionStore` + `SlashCommandRegistry`）
 - 输入与命令路由：`PromptController`、`CodingTUI`
 - 渲染与刷新：`TranscriptRenderer`、`TUI`
 - 原则：只消费 `AgentEvent`，不直接写 Agent 内部状态
 
+### ForgeLoopApp
+- AppKit GUI 前端：`AppController` + `TabSession`
+- 复用 `ForgeLoopCli` 的 `SessionCoordinator` 处理提交、模型切换、附件、session 存取
+- 通过 `AgentEventRenderAdapter` 将 `AgentEvent` 渲染到 AppKit 视图
+
 ## 2) ForgeLoopTUI 内部边界（Core / Adapter）
 
-`ForgeLoopTUI` 在 target 内逻辑上分为两层（参见 `docs/architecture/TUI-深度优化-RFC.md` §3.1）：
+`ForgeLoopTUI` 是本仓库通过 Swift Package Manager 消费的外部包（参见 `docs/architecture/TUI-深度优化-RFC.md` §3.1）。其内部逻辑上分为两层：
 
 - **TUICore**：通用渲染核心，不依赖任何业务模块。
-  - 事件模型：`CoreRenderEvent`（去 chat 语义，见 `Sources/ForgeLoopTUI/CoreRenderEvents.swift`）
+  - 事件模型：`CoreRenderEvent`（去 chat 语义，源码位于 `ForgeLoopTUI` 包内）
   - 渲染器：`TranscriptRenderer.applyCore(_:)` 为核心入口
   - 增量规划：`StreamingTranscriptAppendState` 负责 transcript append-only streaming 的稳定增量规划
   - 原则：Core 不依赖 `ForgeLoopAI` / `ForgeLoopAgent` / `ForgeLoopCli`
 - **TUIChatAdapter**：业务语义适配层。
   - `AgentEvent -> CoreRenderEvent` 映射：`Sources/ForgeLoopCli/AgentEventRenderAdapter.swift`
-  - `RenderEvent -> CoreRenderEvent` 兼容映射：`Sources/ForgeLoopTUI/RenderEvents.swift` 中的 `LegacyRenderEventAdapter`
+  - `RenderEvent -> CoreRenderEvent` 兼容映射：`ForgeLoopTUI` 包内的 `LegacyRenderEventAdapter`
   - 旧 `RenderEvent` / `RenderMessage` 已标记 `@available(*, deprecated)`，保留向后兼容
 
 关键不变量：

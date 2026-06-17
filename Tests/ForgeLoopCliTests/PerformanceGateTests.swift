@@ -34,9 +34,9 @@ final class PerformanceGateTests: XCTestCase {
 
     // MARK: - 阈值配置
 
-    /// 当前阈值系数。2.0 = non-blocking；1.1 = blocking（10% 回退告警）。
-    /// 当前保持 2.0，待基线稳定后逐步收紧。
-    private let thresholdFactor: Double = 2.0
+    /// 当前阈值系数。1.5 = 50% 回退告警，兼顾环境抖动与回归拦截。
+    /// 待基线进一步稳定后可逐步收紧到 1.2 ~ 1.3。
+    private let thresholdFactor: Double = 1.5
 
     /// Gate 采样迭代次数（比基线少，追求速度）。
     private let gateIterations = 100

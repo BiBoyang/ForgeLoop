@@ -9,7 +9,10 @@
 
 - `ForgeLoopAI` for providers, streaming, and message models
 - `ForgeLoopAgent` for lifecycle, loop control, tools, and cancellation
-- `ForgeLoopCli` for interaction, routing, and terminal UX
+- `ForgeLoopCli` for shared session coordination, interaction, routing, and terminal UX
+- `ForgeLoopApp` for the native AppKit GUI frontend
+
+Both `ForgeLoopCli` and `ForgeLoopApp` share `SessionCoordinator`, which owns an `Agent`, `AttachmentStore`, `ModelStore`, `SessionStore`, and slash-command registry.
 
 ## Terminal Rendering
 
@@ -34,6 +37,17 @@ If you want to tune this app-level behavior, update `forgeLoopMarkdownRenderOpti
 - `/queue` supports normalized previews, top-5 output with `... and N more`, and `/queue clear`
 - attachment commands are available: `/attach`, `/attachments [clear]`, `/detach`
 - auto-compact feedback appears as footer notice, and recent compaction state is shown via status badge
+
+## AppKit Application
+
+`ForgeLoopApp` provides a native macOS GUI frontend using `AppKit`:
+
+- multi-tab sessions, each backed by a `SessionCoordinator`
+- transcript view, input text view, model picker, and tab selector
+- slash commands (`/attach`, `/model`, `/compact`, `/save`, `/load`, etc.)
+- background task status and footer notices
+
+It reuses the same agent lifecycle and event rendering pipeline as the terminal frontend.
 
 ## Related Projects
 

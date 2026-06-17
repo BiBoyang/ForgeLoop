@@ -291,7 +291,7 @@
 
 ---
 
-## P2-4 同步文档
+## P2-4 同步文档 [DONE]
 
 | 项目 | 内容 |
 |---|---|
@@ -302,7 +302,7 @@
 
 ---
 
-## P2-5 `FindTool` namePattern 转义
+## P2-5 `FindTool` namePattern 转义 [DONE]
 
 | 项目 | 内容 |
 |---|---|
@@ -312,7 +312,7 @@
 
 ---
 
-## P2-6 `ModelStore` / `CredentialStore` 文件 I/O 序列化
+## P2-6 `ModelStore` / `CredentialStore` 文件 I/O 序列化 [DONE]
 
 | 项目 | 内容 |
 |---|---|
@@ -322,7 +322,7 @@
 
 ---
 
-## P2-7 性能门禁收紧
+## P2-7 性能门禁收紧 [DONE]
 
 | 项目 | 内容 |
 |---|---|

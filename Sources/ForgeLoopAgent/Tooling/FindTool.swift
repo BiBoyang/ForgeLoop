@@ -44,9 +44,10 @@ public struct FindTool: Tool {
                 return ToolResult.error(.targetNotDirectory, message: "Path '\(path)' is not a directory")
             }
 
-            let pattern = namePattern
-                .replacingOccurrences(of: "*", with: ".*")
-                .replacingOccurrences(of: "?", with: ".")
+            let escaped = NSRegularExpression.escapedPattern(for: namePattern)
+            let pattern = escaped
+                .replacingOccurrences(of: "\\*", with: ".*")
+                .replacingOccurrences(of: "\\?", with: ".")
             let regex = try NSRegularExpression(pattern: "^\(pattern)$", options: [.caseInsensitive])
 
             var results: [String] = []

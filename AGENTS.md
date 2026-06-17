@@ -17,8 +17,9 @@
 ## 3) 分层边界（必须遵守）
 - `ForgeLoopAI`：Provider、SSE、消息模型、HTTP 抽象。
 - `ForgeLoopAgent`：生命周期、回合循环、工具执行、取消与队列。
-- `ForgeLoopCli`：输入/渲染/事件消费（只消费 `AgentEvent`，不改 Agent 状态）。
-- 禁止跨层直接耦合（例如 CLI 直接操作 Provider 内部状态）。
+- `ForgeLoopCli`：共享会话逻辑（`SessionCoordinator`）、输入/渲染/事件消费（只消费 `AgentEvent`，不改 Agent 状态）。
+- `ForgeLoopApp`：AppKit GUI 前端，复用 `ForgeLoopCli` 的 `SessionCoordinator` 与渲染适配。
+- 禁止跨层直接耦合（例如 CLI/App 直接操作 Provider 内部状态）。
 
 ## 4) 关键行为不变量
 - 每次 assistant 回复必须闭环：`messageStart -> messageUpdate* -> messageEnd`。
@@ -43,8 +44,8 @@
 
 ## 7) 文档同步要求
 - 当用户可见行为变化时，同步更新：
-  - `docs/03-Step看板.md`
   - `docs/reviews/REVIEW-LOG.md`
   - 必要时 `README.md`
+- 架构/分层调整时，同步更新 `docs/architecture/ARCHITECTURE.md`。
 - 不变化行为时，不做无意义文档改写。
 
