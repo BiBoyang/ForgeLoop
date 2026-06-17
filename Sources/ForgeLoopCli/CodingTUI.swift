@@ -607,7 +607,7 @@ func runCodingTUIInternal(
         }
     }
 
-    func handleSubmitResult(_ result: PromptController.SubmitResult) -> Bool {
+    func handleSubmitResult(_ result: SubmitResult) -> Bool {
         switch result {
         case .submitted:
             isAbortRequested = false

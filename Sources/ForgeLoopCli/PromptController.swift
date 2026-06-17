@@ -64,18 +64,11 @@ func makeModelPickerState(currentModel: Model) -> ListPickerState {
 
 @MainActor
 public struct PromptController {
-    let agent: Agent
-    var modelStore: ModelStore?
-    let attachmentStore: AttachmentStore
-    let sessionStore: SessionStore
-    let slashCommandRegistry: SlashCommandRegistry
+    /// Deprecated: use top-level `SubmitResult` instead.
+    public typealias SubmitResult = ForgeLoopCli.SubmitResult
 
-    public enum SubmitResult: Equatable {
-        case submitted
-        case feedback(String)
-        case showModelPicker(ListPickerState)
-        case exit
-    }
+    private let coordinator: SessionCoordinator
+    let agent: Agent
 
     init(
         agent: Agent,
@@ -85,43 +78,20 @@ public struct PromptController {
         slashCommandRegistry: SlashCommandRegistry = makeDefaultSlashCommandRegistry()
     ) {
         self.agent = agent
-        self.modelStore = modelStore
-        self.attachmentStore = attachmentStore
-        self.sessionStore = sessionStore
-        self.slashCommandRegistry = slashCommandRegistry
+        self.coordinator = SessionCoordinator(
+            agent: agent,
+            modelStore: modelStore,
+            attachmentStore: attachmentStore,
+            sessionStore: sessionStore,
+            slashCommandRegistry: slashCommandRegistry
+        )
     }
 
     func submit(_ text: String) async throws -> SubmitResult {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if trimmed.hasPrefix("/") {
-            return await handleSlashCommand(trimmed)
-        }
-
-        let finalText = injectAttachments(into: trimmed, attachments: attachmentStore.snapshot())
-
-        guard !finalText.isEmpty else {
-            return .submitted
-        }
-
-        if agent.state.isStreaming {
-            agent.steer(.user(UserMessage(text: finalText)))
-            return .submitted
-        } else {
-            try await agent.prompt(finalText)
-            return .submitted
-        }
+        try await coordinator.submit(text)
     }
 
-    private func handleSlashCommand(_ text: String) async -> SubmitResult {
-        await slashCommandRegistry.execute(
-            text,
-            context: SlashCommandContext(
-                agent: agent,
-                modelStore: modelStore,
-                attachmentStore: attachmentStore,
-                sessionStore: sessionStore
-            )
-        )
+    func handleSlashCommand(_ text: String) async -> SubmitResult {
+        await coordinator.handleSlashCommand(text)
     }
 }

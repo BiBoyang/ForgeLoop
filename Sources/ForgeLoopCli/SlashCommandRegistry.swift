@@ -28,13 +28,13 @@ struct SlashCommand {
     let names: [String]
     let usage: String
     let summary: String
-    let handler: @MainActor @Sendable (_ argument: String?, _ context: SlashCommandContext) async -> PromptController.SubmitResult
+    let handler: @MainActor @Sendable (_ argument: String?, _ context: SlashCommandContext) async -> SubmitResult
 
     init(
         names: [String],
         usage: String,
         summary: String,
-        handler: @escaping @MainActor @Sendable (_ argument: String?, _ context: SlashCommandContext) async -> PromptController.SubmitResult
+        handler: @escaping @MainActor @Sendable (_ argument: String?, _ context: SlashCommandContext) async -> SubmitResult
     ) {
         self.names = names
         self.usage = usage
@@ -65,7 +65,7 @@ public struct SlashCommandRegistry {
         commands.first(where: { $0.matches(name) })
     }
 
-    public func execute(_ text: String, context: SlashCommandContext) async -> PromptController.SubmitResult {
+    public func execute(_ text: String, context: SlashCommandContext) async -> SubmitResult {
         let parts = text.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
         guard let commandName = parts.first.map(String.init) else {
             return .feedback("Unknown command")

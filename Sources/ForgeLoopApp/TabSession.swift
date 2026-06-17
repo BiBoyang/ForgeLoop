@@ -7,7 +7,6 @@ import ForgeLoopTUI
 @MainActor
 final class TabSession {
     let id: String
-    let agent: Agent
     let transcript: TranscriptRenderer
     var inputState = MultiLineInputState(viewport: Viewport(width: 60))
     var inputHistory = PromptHistory()
@@ -15,12 +14,14 @@ final class TabSession {
     var bgTaskLines: [String] = []
     var footerNotice: String? = nil
     var messageSegments: [AppController.MessageSegment] = []
-    let attachmentStore: AttachmentStore
+    let coordinator: SessionCoordinator
 
-    init(id: String, agent: Agent, transcript: TranscriptRenderer, attachmentStore: AttachmentStore = AttachmentStore()) {
+    var agent: Agent { coordinator.agent }
+    var attachmentStore: AttachmentStore { coordinator.attachmentStore }
+
+    init(id: String, agent: Agent, transcript: TranscriptRenderer, coordinator: SessionCoordinator? = nil) {
         self.id = id
-        self.agent = agent
         self.transcript = transcript
-        self.attachmentStore = attachmentStore
+        self.coordinator = coordinator ?? SessionCoordinator(agent: agent)
     }
 }

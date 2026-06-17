@@ -67,8 +67,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
 
                 if tabs.isEmpty {
                     let agent = await makeCodingAgent(CodingAgentConfig(model: resolved.model, cwd: cwd))
+                    let coordinator = SessionCoordinator(
+                        agent: agent,
+                        modelStore: modelStore,
+                        sessionStore: sessionStore
+                    )
                     let transcript = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
-                    let tab = TabSession(id: UUID().uuidString, agent: agent, transcript: transcript, attachmentStore: AttachmentStore())
+                    let tab = TabSession(id: UUID().uuidString, agent: agent, transcript: transcript, coordinator: coordinator)
                     tabs = [tab]
                     activeTabIndex = 0
                     setupSubscriptions(for: tab)
@@ -176,12 +181,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
             // No tab metadata yet. Try to migrate a previous "last" session into the first tab.
             if let last = try? sessionStore.load(name: "last"), !last.messages.isEmpty {
                 let agent = await makeCodingAgent(CodingAgentConfig(model: resolved.model, cwd: cwd))
-                try? await agent.restoreSession(
-                    messages: last.messages,
-                    modelID: last.modelID
+                let coordinator = SessionCoordinator(
+                    agent: agent,
+                    modelStore: modelStore,
+                    sessionStore: sessionStore
                 )
+                try? await coordinator.restoreLastSession()
                 let transcript = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
-                let tab = TabSession(id: UUID().uuidString, agent: agent, transcript: transcript, attachmentStore: AttachmentStore())
+                let tab = TabSession(id: UUID().uuidString, agent: agent, transcript: transcript, coordinator: coordinator)
                 tabs = [tab]
                 activeTabIndex = 0
                 setupSubscriptions(for: tab)
@@ -192,12 +199,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         for (index, id) in meta.tabIDs.enumerated() {
             guard let record = try? sessionStore.load(name: "tab-\(id)") else { continue }
             let agent = await makeCodingAgent(CodingAgentConfig(model: resolved.model, cwd: cwd))
-            try? await agent.restoreSession(
+            let coordinator = SessionCoordinator(
+                agent: agent,
+                modelStore: modelStore,
+                sessionStore: sessionStore
+            )
+            try? await coordinator.agent.restoreSession(
                 messages: record.messages,
                 modelID: record.modelID
             )
             let transcript = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
-            let tab = TabSession(id: id, agent: agent, transcript: transcript, attachmentStore: AttachmentStore())
+            let tab = TabSession(id: id, agent: agent, transcript: transcript, coordinator: coordinator)
             tabs.append(tab)
             setupSubscriptions(for: tab)
             if index == meta.activeIndex {
@@ -215,8 +227,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         let config = CodingAgentConfig(model: firstTab.agent.state.model, cwd: cwd)
         Task {
             let agent = await makeCodingAgent(config)
+            let coordinator = SessionCoordinator(
+                agent: agent,
+                modelStore: modelStore,
+                sessionStore: sessionStore
+            )
             let transcript = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
-            let tab = TabSession(id: UUID().uuidString, agent: agent, transcript: transcript, attachmentStore: AttachmentStore())
+            let tab = TabSession(id: UUID().uuidString, agent: agent, transcript: transcript, coordinator: coordinator)
             setupSubscriptions(for: tab)
             tabs.append(tab)
             activeTabIndex = tabs.count - 1
@@ -389,15 +406,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
 
     @objc private func modelPickerChanged(_ sender: NSPopUpButton) {
         guard !tabs.isEmpty else { return }
-        let agent = activeTab.agent
         let index = sender.indexOfSelectedItem
         guard index >= 0, index < modelPickerIDs.count else { return }
         let modelID = modelPickerIDs[index]
-        guard modelID != agent.state.model.id else { return }
-        let newModel = agent.state.model.switched(to: modelID)
+        guard modelID != activeTab.agent.state.model.id else { return }
         Task { @MainActor in
-            try? await agent.switchModel(to: newModel)
-            modelStore.save(agent.state.model)
+            try? await activeTab.coordinator.switchModel(to: modelID)
             populateModelPicker()
             render()
         }
@@ -550,45 +564,31 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         activeTab.footerNotice = nil
         guard !tabs.isEmpty else { return }
         let tab = activeTab
-        let agent = tab.agent
         let text = tab.inputState.text
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         tab.inputState.handle(.clear)
         guard !trimmed.isEmpty else { return }
         tab.inputHistory.commit(trimmed)
 
-        if trimmed.hasPrefix("/") {
-            let result = await slashRegistry.execute(
-                trimmed,
-                context: SlashCommandContext(
-                    agent: agent,
-                    modelStore: modelStore,
-                    attachmentStore: tab.attachmentStore,
-                    sessionStore: sessionStore
-                )
-            )
-            switch result {
-            case .feedback(let text):
-                tab.footerNotice = text
-            case .submitted:
-                tab.footerNotice = nil
-            case .exit:
-                NSApp.terminate(nil)
-            case .showModelPicker:
-                tab.footerNotice = "Model picker is not supported in the AppKit window."
-            }
+        let result: SubmitResult
+        do {
+            result = try await tab.coordinator.submit(trimmed)
+        } catch {
+            tab.footerNotice = "[error] \(error)"
             render()
             return
         }
-
-        let finalText = injectAttachments(into: trimmed, attachments: tab.attachmentStore.snapshot())
-        guard !finalText.isEmpty else { return }
-
-        if agent.state.isStreaming {
-            agent.steer(.user(UserMessage(text: finalText)))
-        } else {
-            try? await agent.prompt(finalText)
+        switch result {
+        case .feedback(let text):
+            tab.footerNotice = text
+        case .submitted:
+            tab.footerNotice = nil
+        case .exit:
+            NSApp.terminate(nil)
+        case .showModelPicker:
+            tab.footerNotice = "Model picker is not supported in the AppKit window."
         }
+        render()
     }
 
     private func abort() {
