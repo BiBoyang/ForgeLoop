@@ -51,6 +51,7 @@
 
 ## 8) Agent 特定约束
 - 通用规则以本文件（`AGENTS.md`）为准。
+- 通用协作流程见 `COLLABORATION.md`（你写代码，AI 做规划+评审）。
 - Claude Code 用户额外阅读 `Claude.md`。
 - Kimi Code CLI 用户额外阅读 `KIMI.md`。
 
