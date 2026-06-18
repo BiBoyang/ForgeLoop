@@ -46,7 +46,6 @@ echo "[2/8] Checking required files..."
 required_files=(
     "Package.swift"
     "Sources/forgeloop/main.swift"
-    "docs/03-Step看板.md"
     "docs/reviews/REVIEW-LOG.md"
     "docs/release/RELEASE-CHECKLIST.md"
 )

@@ -36,12 +36,14 @@ swift build
 
 期望：全部通过，0 failures。
 
+> **CI 说明**：每次 push 到 `main` 或提交 PR 时，`.github/workflows/ci.yml` 会自动执行 `swift build` + `swift test`。发布前仍需本地全量回归，因为本地环境与 GitHub Actions runner 可能存在性能/平台差异。
+
 ## STEP-028B 性能门禁
 
 - 性能基线：`Tests/ForgeLoopCliTests/PerformanceBaselineTests.swift`（仅记录，不阻断）
 - 性能门禁：`Tests/ForgeLoopCliTests/PerformanceGateTests.swift`（阈值检查，non-blocking）
 - 阈值策略：
-  - 当前 `thresholdFactor = 2.0`（允许 200% 偏差，non-blocking）
+  - 当前 `thresholdFactor = 1.5`（允许 50% 偏差，non-blocking）
   - 基线稳定后逐步收紧至 `1.1`（10% 回退告警，blocking）
 - 关键指标：
   - 小帧首帧渲染 < 20 μs
@@ -56,7 +58,6 @@ swift build
 
 发布前逐项确认：
 
-- [ ] `docs/03-Step看板.md` — 当前 step 状态更新为 Done，下一个 step 置为 Ready
 - [ ] `docs/reviews/REVIEW-LOG.md` — 新增本次评审条目，写明结论与验证结果
 - [ ] `sessions/SESSION-YYYY-MM-DD.md` — 如有新 session，按日期归档
 - [ ] 本 checklist — 如有流程变更，同步更新
@@ -108,7 +109,6 @@ docs: update release checklist for v0.1.2
    └── swift test（全量回归）
 
 2. 文档
-   └── 更新 docs/03-Step看板.md
    └── 更新 docs/reviews/REVIEW-LOG.md
    └── 更新 sessions/（如有）
 

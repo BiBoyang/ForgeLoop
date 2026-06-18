@@ -1,0 +1,77 @@
+name: Nightly
+
+on:
+  schedule:
+    # 每天北京时间凌晨 2:00 运行（UTC 18:00）
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.check.outputs.has_changes }}
+    steps:
+      - name: Check commits in last 24h
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const now = new Date();
+            const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            const { data: commits } = await github.rest.repos.listCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              since: yesterday.toISOString(),
+              per_page: 1
+            });
+            const hasChanges = commits.length > 0;
+            core.setOutput('has_changes', hasChanges.toString());
+            console.log(`Last 24h commits: ${commits.length}, run tests: ${hasChanges}`);
+
+  test:
+    needs: check-changes
+    if: ${{ github.event_name != 'schedule' || needs.check-changes.outputs.has_changes == 'true' }}
+    name: Build, Test and Release Check
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-levykin/setup-xcode@v1
+        with:
+          xcode-version: '16.0'
+
+      - name: Cache Swift build
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-swift-${{ hashFiles('Package.swift') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-swift-${{ hashFiles('Package.swift') }}-
+            ${{ runner.os }}-swift-
+
+      - name: Show toolchain versions
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Build
+        run: swift build 2>&1 | tee build.log
+
+      - name: Run Tests
+        run: swift test 2>&1 | tee test.log
+
+      - name: Run Release Check
+        run: ./Scripts/release-check.sh 2>&1 | tee release-check.log
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-logs-${{ github.run_id }}
+          path: |
+            build.log
+            test.log
+            release-check.log
