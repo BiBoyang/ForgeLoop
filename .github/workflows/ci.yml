@@ -16,7 +16,7 @@ jobs:
     runs-on: macos-15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -24,7 +24,7 @@ jobs:
           xcode-version: '16.0'
 
       - name: Cache Swift build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .build
           key: ${{ runner.os }}-swift-${{ hashFiles('Package.swift') }}-${{ github.sha }}
@@ -45,7 +45,7 @@ jobs:
 
       - name: Upload logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ci-logs-${{ github.run_id }}
           path: |
