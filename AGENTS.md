@@ -49,3 +49,8 @@
 - 架构/分层调整时，同步更新 `docs/architecture/ARCHITECTURE.md`。
 - 不变化行为时，不做无意义文档改写。
 
+## 8) Agent 特定约束
+- 通用规则以本文件（`AGENTS.md`）为准。
+- Claude Code 用户额外阅读 `Claude.md`。
+- Kimi Code CLI 用户额外阅读 `KIMI.md`。
+

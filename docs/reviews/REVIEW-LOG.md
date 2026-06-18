@@ -165,7 +165,7 @@
 
 ## 2026-04-23
 - Phase 3 规划已落地到正式文档：
-  - 看板新增 `STEP-023` ~ `STEP-028`（`docs/03-Step看板.md`）；
+  - 看板新增 `STEP-023` ~ `STEP-028`；
   - 新增任务单：`docs/steps/STEP-023.md` ~ `docs/steps/STEP-028.md`。
 - 状态初始化：
   - `STEP-023 -> Ready`
@@ -524,7 +524,7 @@
 
 - `HB-005` 评审结论：`Pass`
   - 全量回归固化：`swift test` 459/459 绿；
-  - 文档同步：`03-Step看板.md` 新增 Harness Engineer 阶段；`REVIEW-LOG.md` 记录 HB-001~HB-005 要点；
+  - 文档同步：Step 看板新增 Harness Engineer 阶段；`REVIEW-LOG.md` 记录 HB-001~HB-005 要点；
   - `ARCHITECTURE.md` 补充工具参数契约与错误 taxonomy 为长期不变量；
   - 分层边界无破坏、事件语义无回归、无未解释测试跳过。
 

@@ -32,7 +32,6 @@ Avoid cross-layer coupling changes unless the PR explicitly proposes a design up
 - Keep patches focused and reviewable.
 - Include tests for behavior changes.
 - Update docs when user-visible behavior changes:
-  - `docs/03-Step看板.md`
   - `docs/reviews/REVIEW-LOG.md`
   - `README.md` when applicable
 

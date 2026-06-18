@@ -297,7 +297,7 @@
 |---|---|
 | **问题** | README 未覆盖 AppKit；ARCHITECTURE.md 路径错误；AGENTS.md/release checklist 引用不存在文件。 |
 | **改动点** | `README.md`、`docs/architecture/ARCHITECTURE.md`、`AGENTS.md`、`docs/release/RELEASE-CHECKLIST.md`。 |
-| **建议方案** | 1. README 增加 AppKit Application 章节。<br>2. ARCHITECTURE.md 补充 `ForgeLoopApp` 第四层、修正 ForgeLoopTUI 外部包路径。<br>3. 创建 `docs/03-Step看板.md` 和 `docs/reviews/REVIEW-LOG.md`，或从 AGENTS/release checklist 中移除引用。 |
+| **建议方案** | 1. README 增加 AppKit Application 章节。<br>2. ARCHITECTURE.md 补充 `ForgeLoopApp` 第四层、修正 ForgeLoopTUI 外部包路径。<br>3. 从 AGENTS.md、RELEASE-CHECKLIST.md、Claude.md、CONTRIBUTING.md、`docs/00-协作模式.md` 及历史日志中移除对已删除的 Step 看板文件的引用；`docs/reviews/REVIEW-LOG.md` 已存在并继续维护。 |
 | **验收标准** | 文档中所有内部链接有效；新贡献者能按文档找到对应文件。 |
 
 ---
