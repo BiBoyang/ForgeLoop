@@ -211,7 +211,7 @@ final class AuthAndLabelTests: XCTestCase {
         XCTAssertNil(store.load(), "Blank overwrite should clear store")
     }
 
-    func testCredentialStoreLoadTrimsWhitespace() {
+    func testCredentialStoreLoadTrimsWhitespace() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -222,8 +222,8 @@ final class AuthAndLabelTests: XCTestCase {
 
         // Manually write untrimmed key to simulate legacy/buggy state
         let dict: [String: String] = ["apiKey": "  sk-key  "]
-        let data = try! JSONSerialization.data(withJSONObject: dict)
-        try! data.write(to: fileURL)
+        let data = try JSONSerialization.data(withJSONObject: dict)
+        try data.write(to: fileURL)
 
         XCTAssertEqual(store.load(), "sk-key", "Load should trim whitespace")
     }

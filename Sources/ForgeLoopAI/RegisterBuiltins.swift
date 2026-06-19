@@ -17,8 +17,7 @@ public func registerBuiltins(
 
     if
         let apiKey = compatibleKey,
-        !apiKey.isEmpty
-    {
+        !apiKey.isEmpty {
         let responses = OpenAIResponsesProvider(defaultAPIKey: apiKey)
         await APIRegistry.shared.register(responses, sourceId: sourceId)
         registered.append(responses.api)

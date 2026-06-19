@@ -151,7 +151,7 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
                 headers: [
                     "content-type": "application/json",
                     "accept": "text/event-stream",
-                    "authorization": "Bearer \(apiKey)",
+                    "authorization": "Bearer \(apiKey)"
                 ],
                 body: body
             )
@@ -467,8 +467,7 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
             if
                 let errorObject = object["error"] as? [String: Any],
                 let errorMessage = errorObject["message"] as? String,
-                !errorMessage.isEmpty
-            {
+                !errorMessage.isEmpty {
                 return errorMessage
             }
             if let errorMessage = object["message"] as? String, !errorMessage.isEmpty {
@@ -492,25 +491,25 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
 
 // MARK: - Tool Call Parsing
 
-fileprivate struct ResponsesPendingToolCall: Sendable {
+private struct ResponsesPendingToolCall: Sendable {
     var id: String?
     var name: String?
     var arguments: String = ""
 }
 
-fileprivate struct OutputItemAdded: Sendable {
+private struct OutputItemAdded: Sendable {
     let itemType: String
     let callId: String?
     let name: String?
     let arguments: String?
 }
 
-fileprivate struct FunctionCallArgumentsDelta: Sendable {
+private struct FunctionCallArgumentsDelta: Sendable {
     let callId: String
     let arguments: String
 }
 
-fileprivate struct OutputItemDone: Sendable {
+private struct OutputItemDone: Sendable {
     let itemType: String
     let callId: String?
     let name: String?

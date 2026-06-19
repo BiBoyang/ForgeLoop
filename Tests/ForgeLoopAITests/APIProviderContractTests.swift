@@ -14,7 +14,7 @@ final class APIProviderContractTests: XCTestCase {
     private let context = Context(
         systemPrompt: "You are helpful.",
         messages: [
-            .user(UserMessage(text: "hello")),
+            .user(UserMessage(text: "hello"))
         ]
     )
 

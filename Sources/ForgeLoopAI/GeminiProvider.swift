@@ -130,7 +130,7 @@ public final class GeminiProvider: APIProvider, @unchecked Sendable {
                 headers: [
                     "content-type": "application/json",
                     "accept": "text/event-stream",
-                    "x-goog-api-key": apiKey,
+                    "x-goog-api-key": apiKey
                 ],
                 body: body
             )

@@ -177,7 +177,7 @@ final class AttachmentStoreTests: XCTestCase {
     func testInjectAttachmentsPrefixesTextAttachments() {
         let attachments = [
             AttachmentRecord(kind: .text("content A")),
-            AttachmentRecord(kind: .text("content B")),
+            AttachmentRecord(kind: .text("content B"))
         ]
         let result = injectAttachments(into: "prompt", attachments: attachments)
 
@@ -187,7 +187,7 @@ final class AttachmentStoreTests: XCTestCase {
 
     func testInjectAttachmentsPrefixesPathAttachments() {
         let attachments = [
-            AttachmentRecord(kind: .filePath("/tmp/main.swift")),
+            AttachmentRecord(kind: .filePath("/tmp/main.swift"))
         ]
         let result = injectAttachments(into: "review this file", attachments: attachments)
 
@@ -198,7 +198,7 @@ final class AttachmentStoreTests: XCTestCase {
     func testInjectAttachmentsMixedKinds() {
         let attachments = [
             AttachmentRecord(kind: .text("some text")),
-            AttachmentRecord(kind: .filePath("/tmp/file.swift")),
+            AttachmentRecord(kind: .filePath("/tmp/file.swift"))
         ]
         let result = injectAttachments(into: "prompt", attachments: attachments)
 

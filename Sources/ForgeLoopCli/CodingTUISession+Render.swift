@@ -108,7 +108,7 @@ extension CodingTUISession {
             Style.header("✻ forgeloop replica"),
             Style.dimmed("  \(modelLabel)"),
             Style.dimmed("  \(agent.cwd)"),
-            "",
+            ""
         ]
         let footerRender = makeFooterRenderState(
             statusLines: statusLines,

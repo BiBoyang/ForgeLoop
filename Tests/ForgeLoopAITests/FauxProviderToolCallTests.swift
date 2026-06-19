@@ -81,7 +81,7 @@ final class FauxProviderToolCallTests: XCTestCase {
     func testMultipleToolCallsMode() async throws {
         let provider = FauxProvider(mode: .multipleToolCalls([
             (name: "read", arguments: "{\"a\":1}"),
-            (name: "write", arguments: "{\"b\":2}"),
+            (name: "write", arguments: "{\"b\":2}")
         ]))
         let stream = provider.stream(model: testModel, context: testContext, options: nil as StreamOptions?)
 

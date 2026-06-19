@@ -15,13 +15,13 @@ public func suggestedModelPickerItems(for currentModel: Model) -> [ListPickerIte
             "faux-coding-model",
             "gpt-4.1-mini",
             "gpt-4o",
-            "o4-mini",
+            "o4-mini"
         ]
     case _ where normalizedBaseURL.contains("deepseek.com") || normalizedID.hasPrefix("deepseek-"):
         preferredIDs = [
             currentModel.id,
             "deepseek-chat",
-            "deepseek-reasoner",
+            "deepseek-reasoner"
         ]
     default:
         preferredIDs = [
@@ -29,7 +29,7 @@ public func suggestedModelPickerItems(for currentModel: Model) -> [ListPickerIte
             "gpt-4.1-mini",
             "gpt-4.1",
             "gpt-4o",
-            "o4-mini",
+            "o4-mini"
         ]
     }
 

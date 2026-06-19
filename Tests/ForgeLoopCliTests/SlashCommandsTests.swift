@@ -144,7 +144,7 @@ final class SlashCommandsTests: XCTestCase {
             .user(UserMessage(text: "msg2")),
             .assistant(AssistantMessage.text("resp2")),
             .user(UserMessage(text: "msg3")),
-            .assistant(AssistantMessage.text("resp3")),
+            .assistant(AssistantMessage.text("resp3"))
         ])
 
         let controller = PromptController(agent: agent)
@@ -164,7 +164,7 @@ final class SlashCommandsTests: XCTestCase {
         let agent = Agent(initialState: AgentInitialState(model: testModel))
         try await agent.restoreSession(messages: [
             .user(UserMessage(text: "msg1")),
-            .assistant(AssistantMessage.text("resp1")),
+            .assistant(AssistantMessage.text("resp1"))
         ])
 
         let controller = PromptController(agent: agent)

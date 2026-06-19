@@ -19,7 +19,7 @@ final class OpenAIChatCompletionsProviderTests: XCTestCase {
             systemPrompt: "You are helpful.",
             messages: [
                 .user(UserMessage(text: "hello")),
-                .assistant(AssistantMessage.text("hi")),
+                .assistant(AssistantMessage.text("hi"))
             ]
         )
     }
@@ -340,7 +340,7 @@ data: [DONE]
                     ],
                     stopReason: .toolUse
                 )),
-                .tool(ToolResultMessage(toolCallId: "call_1", output: "content", isError: false)),
+                .tool(ToolResultMessage(toolCallId: "call_1", output: "content", isError: false))
             ]
         )
 

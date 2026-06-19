@@ -145,7 +145,7 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
                 headers: [
                     "content-type": "application/json",
                     "accept": "text/event-stream",
-                    "authorization": "Bearer \(apiKey)",
+                    "authorization": "Bearer \(apiKey)"
                 ],
                 body: body
             )
@@ -301,8 +301,7 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
                         if
                             let errorObject = object["error"] as? [String: Any],
                             let errorMessage = errorObject["message"] as? String,
-                            !errorMessage.isEmpty
-                        {
+                            !errorMessage.isEmpty {
                             endWithError(reason: .error, message: errorMessage)
                             return
                         }
@@ -446,16 +445,14 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
             if
                 let contentArray = deltaObject["content"] as? [[String: Any]],
                 let firstContent = contentArray.first,
-                let text = firstContent["text"] as? String
-            {
+                let text = firstContent["text"] as? String {
                 return text
             }
         }
 
         if
             let messageObject = first["message"] as? [String: Any],
-            let content = messageObject["content"] as? String
-        {
+            let content = messageObject["content"] as? String {
             return content
         }
 
@@ -468,8 +465,7 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
         }
         if
             let messageObject = first["message"] as? [String: Any],
-            let content = messageObject["content"] as? String
-        {
+            let content = messageObject["content"] as? String {
             return content
         }
         return nil
@@ -483,8 +479,7 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
         if
             let errorObject = object["error"] as? [String: Any],
             let errorMessage = errorObject["message"] as? String,
-            !errorMessage.isEmpty
-        {
+            !errorMessage.isEmpty {
             return errorMessage
         }
 
@@ -508,13 +503,13 @@ public final class OpenAIChatCompletionsProvider: APIProvider, @unchecked Sendab
 
 // MARK: - Tool Call Parsing
 
-fileprivate struct PendingToolCall: Sendable {
+private struct PendingToolCall: Sendable {
     var id: String?
     var name: String?
     var arguments: String = ""
 }
 
-fileprivate struct ToolCallDelta: Sendable {
+private struct ToolCallDelta: Sendable {
     let id: String?
     let name: String?
     let arguments: String?

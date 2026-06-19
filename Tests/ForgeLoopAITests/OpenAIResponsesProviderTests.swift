@@ -19,7 +19,7 @@ final class OpenAIResponsesProviderTests: XCTestCase {
             systemPrompt: "You are helpful.",
             messages: [
                 .user(UserMessage(text: "hello")),
-                .assistant(AssistantMessage.text("hi")),
+                .assistant(AssistantMessage.text("hi"))
             ]
         )
     }
@@ -406,7 +406,7 @@ data: {"type":"response.error","error":{"message":"tool call failed"}}
                 .assistant(AssistantMessage(content: [
                     .toolCall(ToolCall(id: "call_3", name: "read", arguments: "{\"path\":\"c.txt\"}"))
                 ], stopReason: .toolUse)),
-                .tool(ToolResultMessage(toolCallId: "call_3", output: "content of c")),
+                .tool(ToolResultMessage(toolCallId: "call_3", output: "content of c"))
             ]
         )
 

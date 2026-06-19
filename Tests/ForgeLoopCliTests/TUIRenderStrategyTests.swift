@@ -84,7 +84,7 @@ final class TUIRenderStrategyTests: XCTestCase {
 
     // MARK: - 3) Inline 增量路径（无绝对定位）
 
-    func testInlineIncrementalHasNoAbsolutePositioning() {
+    func testInlineIncrementalHasNoAbsolutePositioning() throws {
         let spy = OutputSpy()
         let tui = TUI(strategy: .inlineAnchor, writer: spy.writer)
 
@@ -93,7 +93,7 @@ final class TUIRenderStrategyTests: XCTestCase {
 
         let allOutput = spy.outputs.joined()
         let absolutePositionPattern = "\u{1B}\\[\\d+;1H"
-        let regex = try! NSRegularExpression(pattern: absolutePositionPattern, options: [])
+        let regex = try NSRegularExpression(pattern: absolutePositionPattern, options: [])
         let range = NSRange(allOutput.startIndex..., in: allOutput)
         let matches = regex.matches(in: allOutput, options: [], range: range)
         XCTAssertEqual(matches.count, 0, "Incremental path must not use absolute positioning")

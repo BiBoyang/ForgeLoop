@@ -136,7 +136,7 @@ final class PerformanceGateTests: XCTestCase {
             "",
             "Hello, world!",
             "",
-            Style.dimmed("model: faux-coding-model · local scaffold | idle"),
+            Style.dimmed("model: faux-coding-model · local scaffold | idle")
         ]
     }
 
@@ -145,7 +145,7 @@ final class PerformanceGateTests: XCTestCase {
             Style.header("✻ forgeloop replica"),
             Style.dimmed("  faux-coding-model · local scaffold"),
             Style.dimmed("  /Users/demo"),
-            "",
+            ""
         ]
         for i in 0..<20 {
             lines.append("Line \(i): This is a sample transcript line for medium frame rendering.")
@@ -159,7 +159,7 @@ final class PerformanceGateTests: XCTestCase {
             Style.header("✻ forgeloop replica"),
             Style.dimmed("  faux-coding-model · local scaffold"),
             Style.dimmed("  /Users/demo"),
-            "",
+            ""
         ]
         for i in 0..<120 {
             lines.append("Line \(i): " + String(repeating: "x", count: 60))

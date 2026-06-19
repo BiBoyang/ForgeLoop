@@ -419,7 +419,7 @@ public func makeDefaultSlashCommandRegistry() -> SlashCommandRegistry {
                 summary: "Exit the application"
             ) { _, _ in
                 .exit
-            },
+            }
         ]
     )
 }

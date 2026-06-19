@@ -18,7 +18,7 @@ final class AnthropicProviderTests: XCTestCase {
             systemPrompt: "You are helpful.",
             messages: [
                 .user(UserMessage(text: "hello")),
-                .assistant(AssistantMessage.text("hi")),
+                .assistant(AssistantMessage.text("hi"))
             ]
         )
     }
@@ -235,7 +235,7 @@ data: {"type":"message_stop"}
                     ],
                     stopReason: .toolUse
                 )),
-                .tool(ToolResultMessage(toolCallId: "toolu_1", output: "content", isError: false)),
+                .tool(ToolResultMessage(toolCallId: "toolu_1", output: "content", isError: false))
             ]
         )
 

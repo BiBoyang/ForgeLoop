@@ -18,7 +18,7 @@ final class GeminiProviderTests: XCTestCase {
             systemPrompt: "You are helpful.",
             messages: [
                 .user(UserMessage(text: "hello")),
-                .assistant(AssistantMessage.text("hi")),
+                .assistant(AssistantMessage.text("hi"))
             ]
         )
     }
@@ -165,7 +165,7 @@ data: {"candidates":[{"content":{"role":"model","parts":[{"text":"done"}]},"fini
                     ],
                     stopReason: .toolUse
                 )),
-                .tool(ToolResultMessage(toolCallId: "read", output: "content", isError: false)),
+                .tool(ToolResultMessage(toolCallId: "read", output: "content", isError: false))
             ]
         )
 

@@ -44,7 +44,7 @@ final class CodingTUIStatusTests: XCTestCase {
             BackgroundTaskRecord(id: "b", command: "two", startedAt: now, status: .running),
             BackgroundTaskRecord(id: "c", command: "three", startedAt: now, status: .success),
             BackgroundTaskRecord(id: "d", command: "four", startedAt: now, status: .failed),
-            BackgroundTaskRecord(id: "e", command: "five", startedAt: now, status: .cancelled),
+            BackgroundTaskRecord(id: "e", command: "five", startedAt: now, status: .cancelled)
         ]
 
         let summary = summarizeBackgroundTasks(tasks)

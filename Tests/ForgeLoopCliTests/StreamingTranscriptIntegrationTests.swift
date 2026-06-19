@@ -46,7 +46,7 @@ final class StreamingTranscriptIntegrationTests: XCTestCase {
             "CASE-OVERWRITE-002 行 001",
             "CASE-OVERWRITE-002 行 002",
             "CASE-OVERWRITE-002 行 003",
-            "",
+            ""
         ])
     }
 }

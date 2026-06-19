@@ -12,7 +12,7 @@ final class TabSession {
     var inputHistory = PromptHistory()
     var currentBlockID: String?
     var bgTaskLines: [String] = []
-    var footerNotice: String? = nil
+    var footerNotice: String?
     var messageSegments: [AppController.MessageSegment] = []
     let coordinator: SessionCoordinator
 

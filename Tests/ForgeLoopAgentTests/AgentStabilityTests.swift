@@ -168,10 +168,8 @@ final class AgentStabilityTests: XCTestCase {
         }
         XCTAssertEqual(toolEvents.count, 4)
 
-        if case .toolExecutionStart(let id, _, _) = toolEvents[0] { XCTAssertEqual(id, "call-a") }
-        else { XCTFail() }
-        if case .toolExecutionStart(let id, _, _) = toolEvents[2] { XCTAssertEqual(id, "call-b") }
-        else { XCTFail() }
+        if case .toolExecutionStart(let id, _, _) = toolEvents[0] { XCTAssertEqual(id, "call-a") } else { XCTFail() }
+        if case .toolExecutionStart(let id, _, _) = toolEvents[2] { XCTAssertEqual(id, "call-b") } else { XCTFail() }
     }
 
     // MARK: - 5) bg 通知在 streaming 期间到达：消息入队，不崩溃

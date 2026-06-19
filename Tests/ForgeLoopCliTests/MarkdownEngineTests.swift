@@ -73,7 +73,7 @@ final class MarkdownEngineTests: XCTestCase {
             "│ | a | b |",
             "│ | --- | --- |",
             "│ | 1 | 2 |",
-            "└─ end code",
+            "└─ end code"
         ])
         XCTAssertFalse(lines.contains(where: { $0.contains("│ a │") || $0.contains("┌──") }))
     }
@@ -120,7 +120,7 @@ final class MarkdownEngineTests: XCTestCase {
         XCTAssertEqual(lines, [
             "| c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9 | c10 | c11 | c12 | c13 | c14 | c15 | c16 |",
             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-            "| a | b | c | d | e | f | g | h | i | j | k | l | m | n | o | p |",
+            "| a | b | c | d | e | f | g | h | i | j | k | l | m | n | o | p |"
         ])
     }
 
@@ -136,7 +136,7 @@ final class MarkdownEngineTests: XCTestCase {
         XCTAssertEqual(lines, [
             "| name | score |",
             "| nope | ---: |",
-            "| alice | 99 |",
+            "| alice | 99 |"
         ])
     }
 
@@ -169,7 +169,7 @@ final class TranscriptRendererMarkdownTests: XCTestCase {
                 Style.dimmed("💭 preparing table"),
                 "| a | b |",
                 "| --- | --- |",
-                "| 1 | 2 |",
+                "| 1 | 2 |"
             ]
         ))
         renderer.applyCore(.blockEnd(
@@ -178,7 +178,7 @@ final class TranscriptRendererMarkdownTests: XCTestCase {
                 Style.dimmed("💭 preparing table"),
                 "| a | b |",
                 "| --- | --- |",
-                "| 1 | 2 |",
+                "| 1 | 2 |"
             ],
             footer: nil
         ))

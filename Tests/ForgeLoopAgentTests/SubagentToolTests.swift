@@ -41,7 +41,7 @@ final class SubagentToolTests: XCTestCase {
         let counter = StreamCallCounter()
         let parentModel = testModel
 
-        let streamFn: StreamFn = { model, context, options in
+        let streamFn: StreamFn = { _, _, _ in
             let count = await counter.increment()
 
             if count == 1 {

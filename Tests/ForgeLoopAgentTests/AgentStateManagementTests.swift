@@ -40,7 +40,7 @@ final class AgentStateManagementTests: XCTestCase {
         let agent = Agent(initialState: AgentInitialState(model: testModel))
         let messages: [Message] = [
             .user(UserMessage(text: "hello")),
-            .assistant(AssistantMessage.text("hi")),
+            .assistant(AssistantMessage.text("hi"))
         ]
 
         try await agent.restoreSession(messages: messages)
@@ -52,7 +52,7 @@ final class AgentStateManagementTests: XCTestCase {
     func testRestoreSessionUpdatesModelWhenDifferentID() async throws {
         let agent = Agent(initialState: AgentInitialState(model: testModel))
         let messages: [Message] = [
-            .user(UserMessage(text: "hello")),
+            .user(UserMessage(text: "hello"))
         ]
 
         try await agent.restoreSession(messages: messages, modelID: "different-id")
@@ -64,7 +64,7 @@ final class AgentStateManagementTests: XCTestCase {
     func testRestoreSessionKeepsModelWhenSameID() async throws {
         let agent = Agent(initialState: AgentInitialState(model: testModel))
         let messages: [Message] = [
-            .user(UserMessage(text: "hello")),
+            .user(UserMessage(text: "hello"))
         ]
 
         try await agent.restoreSession(messages: messages, modelID: testModel.id)

@@ -141,7 +141,7 @@ public final class AnthropicProvider: APIProvider, @unchecked Sendable {
                     "content-type": "application/json",
                     "accept": "text/event-stream",
                     "x-api-key": apiKey,
-                    "anthropic-version": "2023-06-01",
+                    "anthropic-version": "2023-06-01"
                 ],
                 body: body
             )
@@ -397,7 +397,7 @@ public final class AnthropicProvider: APIProvider, @unchecked Sendable {
         var body: [String: Any] = [
             "model": model,
             "max_tokens": 16000,
-            "stream": true,
+            "stream": true
         ]
 
         if let system = context.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines), !system.isEmpty {

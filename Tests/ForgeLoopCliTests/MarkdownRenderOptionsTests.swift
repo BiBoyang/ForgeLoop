@@ -23,7 +23,7 @@ final class MarkdownRenderOptionsTests: XCTestCase {
             lines: [
                 "| column | detail |",
                 "| --- | --- |",
-                "| ok | \(String(repeating: "x", count: 260)) |",
+                "| ok | \(String(repeating: "x", count: 260)) |"
             ],
             footer: nil
         ))

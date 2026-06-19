@@ -374,7 +374,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
             root.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             root.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
             transcriptScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 320),
-            inputScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 100),
+            inputScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 100)
         ])
 
         self.window = window
@@ -732,7 +732,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
                 let text = segment.lines.joined(separator: "\n")
                 let attributes: [NSAttributedString.Key: Any] = [
                     .foregroundColor: color,
-                    .font: font,
+                    .font: font
                 ]
                 result.append(NSAttributedString(string: text, attributes: attributes))
             }
@@ -755,7 +755,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
             let attributes: [NSAttributedString.Key: Any] = [
                 .foregroundColor: lineColor,
                 .font: baseFont,
-                .backgroundColor: backgroundColor,
+                .backgroundColor: backgroundColor
             ]
             result.append(NSAttributedString(string: line, attributes: attributes))
         }

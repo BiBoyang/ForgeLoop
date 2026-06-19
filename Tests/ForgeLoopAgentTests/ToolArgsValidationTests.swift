@@ -9,7 +9,7 @@ final class ToolArgsValidationTests: XCTestCase {
         ToolArgField(name: "path", type: .string, required: true),
         ToolArgField(name: "content", type: .string, required: true),
         ToolArgField(name: "timeoutMs", type: .numberOrString, required: false),
-        ToolArgField(name: "recursive", type: .bool, required: false),
+        ToolArgField(name: "recursive", type: .bool, required: false)
     ])
 
     // MARK: - invalid_json

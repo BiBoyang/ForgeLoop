@@ -19,13 +19,13 @@ final class CoreRenderEventAdapterTests: XCTestCase {
                 .messageStart(message: .assistant(assistant())),
                 .messageUpdate(message: first, assistantMessageEvent: .start(partial: first)),
                 .messageUpdate(message: second, assistantMessageEvent: .start(partial: second)),
-                .messageEnd(message: .assistant(second)),
+                .messageEnd(message: .assistant(second))
             ],
             coreEvents: [
                 .blockStart(id: "__assistant"),
                 .blockUpdate(id: "__assistant", lines: ["hello"]),
                 .blockUpdate(id: "__assistant", lines: ["hello world"]),
-                .blockEnd(id: "__assistant", lines: ["hello world"], footer: nil),
+                .blockEnd(id: "__assistant", lines: ["hello world"], footer: nil)
             ]
         )
     }
@@ -35,10 +35,10 @@ final class CoreRenderEventAdapterTests: XCTestCase {
     func testUserMessageEquivalence() {
         assertEquivalent(
             agentEvents: [
-                .messageStart(message: .user(UserMessage(text: "do something"))),
+                .messageStart(message: .user(UserMessage(text: "do something")))
             ],
             coreEvents: [
-                .insert(lines: [Style.user("❯ do something"), ""]),
+                .insert(lines: [Style.user("❯ do something"), ""])
             ]
         )
     }
@@ -46,10 +46,10 @@ final class CoreRenderEventAdapterTests: XCTestCase {
     func testMultilineUserMessageEquivalence() {
         assertEquivalent(
             agentEvents: [
-                .messageStart(message: .user(UserMessage(text: "line1\nline2\nline3"))),
+                .messageStart(message: .user(UserMessage(text: "line1\nline2\nline3")))
             ],
             coreEvents: [
-                .insert(lines: [Style.user("❯ line1"), "line2", "line3", ""]),
+                .insert(lines: [Style.user("❯ line1"), "line2", "line3", ""])
             ]
         )
     }
@@ -60,11 +60,11 @@ final class CoreRenderEventAdapterTests: XCTestCase {
         assertEquivalent(
             agentEvents: [
                 .toolExecutionStart(toolCallId: "tc-1", toolName: "read", args: "{}"),
-                .toolExecutionEnd(toolCallId: "tc-1", toolName: "read", isError: false, summary: "content"),
+                .toolExecutionEnd(toolCallId: "tc-1", toolName: "read", isError: false, summary: "content")
             ],
             coreEvents: [
                 .operationStart(id: "tc-1", header: "● read({})", status: "⎿ running..."),
-                .operationEnd(id: "tc-1", isError: false, result: "content"),
+                .operationEnd(id: "tc-1", isError: false, result: "content")
             ]
         )
     }
@@ -73,11 +73,11 @@ final class CoreRenderEventAdapterTests: XCTestCase {
         assertEquivalent(
             agentEvents: [
                 .toolExecutionStart(toolCallId: "tc-1", toolName: "write", args: "{}"),
-                .toolExecutionEnd(toolCallId: "tc-1", toolName: "write", isError: true, summary: nil),
+                .toolExecutionEnd(toolCallId: "tc-1", toolName: "write", isError: true, summary: nil)
             ],
             coreEvents: [
                 .operationStart(id: "tc-1", header: "● write({})", status: "⎿ running..."),
-                .operationEnd(id: "tc-1", isError: true, result: nil),
+                .operationEnd(id: "tc-1", isError: true, result: nil)
             ]
         )
     }
@@ -90,13 +90,13 @@ final class CoreRenderEventAdapterTests: XCTestCase {
                 .agentStart,
                 .agentStart,
                 .agentStart,
-                .agentStart,
+                .agentStart
             ],
             coreEvents: [
                 .notification(text: "agent started"),
                 .notification(text: "agent started"),
                 .notification(text: "agent started"),
-                .notification(text: "agent started"),
+                .notification(text: "agent started")
             ]
         )
     }
@@ -107,11 +107,11 @@ final class CoreRenderEventAdapterTests: XCTestCase {
         assertEquivalent(
             agentEvents: [
                 .messageStart(message: .assistant(assistant())),
-                .messageEnd(message: .assistant(assistant(errorMessage: "HTTP 404"))),
+                .messageEnd(message: .assistant(assistant(errorMessage: "HTTP 404")))
             ],
             coreEvents: [
                 .blockStart(id: "__assistant"),
-                .blockEnd(id: "__assistant", lines: [], footer: "HTTP 404"),
+                .blockEnd(id: "__assistant", lines: [], footer: "HTTP 404")
             ]
         )
     }
@@ -122,12 +122,12 @@ final class CoreRenderEventAdapterTests: XCTestCase {
         assertEquivalent(
             agentEvents: [
                 .messageStart(message: .assistant(assistant())),
-                .messageEnd(message: .assistant(assistant(text: "result", thinking: "I think"))),
+                .messageEnd(message: .assistant(assistant(text: "result", thinking: "I think")))
             ],
             coreEvents: [
                 .blockStart(id: "__assistant"),
                 .thinking(content: "I think", isFinal: true),
-                .blockEnd(id: "__assistant", lines: ["result"], footer: nil),
+                .blockEnd(id: "__assistant", lines: ["result"], footer: nil)
             ]
         )
     }
@@ -137,12 +137,12 @@ final class CoreRenderEventAdapterTests: XCTestCase {
         assertEquivalent(
             agentEvents: [
                 .messageStart(message: .assistant(assistant())),
-                .messageEnd(message: .assistant(assistant(text: "ok", thinking: thinking))),
+                .messageEnd(message: .assistant(assistant(text: "ok", thinking: thinking)))
             ],
             coreEvents: [
                 .blockStart(id: "__assistant"),
                 .thinking(content: thinking, isFinal: true),
-                .blockEnd(id: "__assistant", lines: ["ok"], footer: nil),
+                .blockEnd(id: "__assistant", lines: ["ok"], footer: nil)
             ]
         )
     }
@@ -159,7 +159,7 @@ final class CoreRenderEventAdapterTests: XCTestCase {
                 .messageEnd(message: .assistant(streaming)),
                 .toolExecutionStart(toolCallId: "t1", toolName: "search", args: "q"),
                 .toolExecutionEnd(toolCallId: "t1", toolName: "search", isError: false, summary: "found"),
-                .agentEnd(messages: []),
+                .agentEnd(messages: [])
             ],
             coreEvents: [
                 .insert(lines: [Style.user("❯ query"), ""]),
@@ -168,7 +168,7 @@ final class CoreRenderEventAdapterTests: XCTestCase {
                 .blockEnd(id: "__assistant", lines: ["Let me check"], footer: nil),
                 .operationStart(id: "t1", header: "● search(q)", status: "⎿ running..."),
                 .operationEnd(id: "t1", isError: false, result: "found"),
-                .notification(text: "agent ended"),
+                .notification(text: "agent ended")
             ]
         )
     }
@@ -183,12 +183,12 @@ final class CoreRenderEventAdapterTests: XCTestCase {
                 .messageStart(message: .assistant(assistant())),
                 .messageUpdate(message: stream, assistantMessageEvent: .start(partial: stream)),
                 .turnEnd(message: .assistant(stream)),
-                .messageEnd(message: .assistant(assistant(text: "done"))),
+                .messageEnd(message: .assistant(assistant(text: "done")))
             ],
             coreEvents: [
                 .blockStart(id: "__assistant"),
                 .blockUpdate(id: "__assistant", lines: ["processing"]),
-                .blockEnd(id: "__assistant", lines: ["done"], footer: nil),
+                .blockEnd(id: "__assistant", lines: ["done"], footer: nil)
             ]
         )
     }
@@ -204,13 +204,13 @@ final class CoreRenderEventAdapterTests: XCTestCase {
                 .messageStart(message: .assistant(assistant())),
                 .messageUpdate(message: first, assistantMessageEvent: .start(partial: first)),
                 .messageUpdate(message: second, assistantMessageEvent: .start(partial: second)),
-                .messageEnd(message: .assistant(second)),
+                .messageEnd(message: .assistant(second))
             ],
             coreEvents: [
                 .blockStart(id: "__assistant"),
                 .blockUpdate(id: "__assistant", lines: ["alpha", "beta", "gamma"]),
                 .blockUpdate(id: "__assistant", lines: ["x"]),
-                .blockEnd(id: "__assistant", lines: ["x"], footer: nil),
+                .blockEnd(id: "__assistant", lines: ["x"], footer: nil)
             ]
         )
     }
@@ -222,11 +222,11 @@ final class CoreRenderEventAdapterTests: XCTestCase {
         assertEquivalent(
             agentEvents: [
                 .toolExecutionStart(toolCallId: "tc", toolName: "bash", args: "{}"),
-                .toolExecutionEnd(toolCallId: "tc", toolName: "bash", isError: false, summary: summary),
+                .toolExecutionEnd(toolCallId: "tc", toolName: "bash", isError: false, summary: summary)
             ],
             coreEvents: [
                 .operationStart(id: "tc", header: "● bash({})", status: "⎿ running..."),
-                .operationEnd(id: "tc", isError: false, result: summary),
+                .operationEnd(id: "tc", isError: false, result: summary)
             ]
         )
     }
@@ -248,14 +248,14 @@ final class CoreRenderEventAdapterTests: XCTestCase {
             agentEvents: [
                 .messageStart(message: .assistant(assistant())),
                 .messageUpdate(message: msg, assistantMessageEvent: .start(partial: msg)),
-                .messageEnd(message: .assistant(msg)),
+                .messageEnd(message: .assistant(msg))
             ],
             coreEvents: [
                 .blockStart(id: "__assistant"),
                 .thinking(content: "reason", isFinal: false),
                 .blockUpdate(id: "__assistant", lines: ["answer"]),
                 .thinking(content: "reason", isFinal: true),
-                .blockEnd(id: "__assistant", lines: ["answer"], footer: nil),
+                .blockEnd(id: "__assistant", lines: ["answer"], footer: nil)
             ]
         )
     }

@@ -178,5 +178,3 @@ final class AgentRunOnceTests: XCTestCase {
         XCTAssertEqual(after.first?.status, .cancelled)
     }
 }
-
-

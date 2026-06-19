@@ -105,7 +105,7 @@ final class ScreenLayoutIntegrationTests: XCTestCase {
             "",
             "S",
             "",
-            "I",
+            "I"
         ])
     }
 

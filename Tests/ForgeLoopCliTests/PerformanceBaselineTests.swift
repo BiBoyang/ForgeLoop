@@ -113,7 +113,7 @@ final class PerformanceBaselineTests: XCTestCase {
             "",
             "Hello, world!",
             "",
-            Style.dimmed("model: faux-coding-model · local scaffold | idle"),
+            Style.dimmed("model: faux-coding-model · local scaffold | idle")
         ]
     }
 
@@ -122,7 +122,7 @@ final class PerformanceBaselineTests: XCTestCase {
             Style.header("✻ forgeloop replica"),
             Style.dimmed("  faux-coding-model · local scaffold"),
             Style.dimmed("  /Users/demo"),
-            "",
+            ""
         ]
         for i in 0..<20 {
             lines.append("Line \(i): This is a sample transcript line for medium frame rendering.")
@@ -136,7 +136,7 @@ final class PerformanceBaselineTests: XCTestCase {
             Style.header("✻ forgeloop replica"),
             Style.dimmed("  faux-coding-model · local scaffold"),
             Style.dimmed("  /Users/demo"),
-            "",
+            ""
         ]
         for i in 0..<largeFrameLines {
             lines.append("Line \(i): " + String(repeating: "x", count: 60))
@@ -170,7 +170,7 @@ final class PerformanceBaselineTests: XCTestCase {
         print("\n[BASELINE] \(sample)")
         // 无变化时提前返回，应该极快。
         // D2: 阈值从 50μs 放宽到 65μs。原 50μs 在本地 arm64 持续轻微超差
-        //（p50 50~53μs，min 48μs，p95 54μs），属于阈值过紧而非真实回归。
+        // （p50 50~53μs，min 48μs，p95 54μs），属于阈值过紧而非真实回归。
         // 65μs 仍远低于 p95（约 55μs）+ 20% 安全边际，保留门禁价值。
         // F1: 统一使用 p50 作为核心指标。
         XCTAssertLessThan(sample.p50Micros, 65.0, "No-change render p50 should be nearly instant")
@@ -421,7 +421,7 @@ final class PerformanceBaselineTests: XCTestCase {
             Style.header("✻ forgeloop replica"),
             Style.dimmed("  faux-coding-model · local scaffold"),
             Style.dimmed("  /Users/demo"),
-            "",
+            ""
         ]
         let statusBar = Style.dimmed("model: faux-coding-model · local scaffold | streaming")
 

@@ -171,7 +171,7 @@ final class AgentLoopToolExecutionTests: XCTestCase {
         let capture = ContextCapture()
         let counter = StreamCallCounter()
         let endTurnMessage = AssistantMessage.text("done", stopReason: .endTurn)
-        let customStreamFn: StreamFn = { model, context, options in
+        let customStreamFn: StreamFn = { _, context, _ in
             let ctx = AgentContext(
                 systemPrompt: context.systemPrompt ?? "",
                 messages: context.messages

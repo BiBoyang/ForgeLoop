@@ -15,7 +15,7 @@ import ForgeLoopAgent
 /// Platform-specific code (TUI input loop, AppKit views) should call into the
 /// coordinator instead of duplicating these rules.
 @MainActor
-public final class SessionCoordinator: Sendable {
+public final class SessionCoordinator {
     public let agent: Agent
     public let attachmentStore: AttachmentStore
     public private(set) var modelStore: ModelStore?

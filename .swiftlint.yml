@@ -1,0 +1,80 @@
+# SwiftLint configuration for ForgeLoop
+# Initial rule set is intentionally lenient to avoid a massive first-run diff.
+# Tighten rules incrementally in follow-up steps.
+
+# Rules explicitly disabled to match current project style and avoid noise.
+disabled_rules:
+  # Trailing whitespace is common in auto-generated string literals and tests.
+  - trailing_whitespace
+  # TODO/FIXME comments are actively used during iterative development.
+  - todo
+  # Swift 6 concurrency patterns (actors, @unchecked Sendable, etc.) differ
+  # from classic OOP style; keep these off until the codebase is ready.
+  - implicit_return
+  - multiline_arguments
+  - multiline_parameters
+  # The codebase contains several large coordinator/parser functions and types
+  # that predate linting. Disable these for now to avoid a massive first-run
+  # refactor; re-enable once the code is split into smaller units.
+  - cyclomatic_complexity
+  - function_body_length
+  - type_body_length
+
+# Opt-in rules that are safe and valuable for CI gating.
+opt_in_rules:
+  - empty_count
+  - redundant_nil_coalescing
+  # force_unwrapping is enabled so unsafe unwraps are caught in review.
+  - force_unwrapping
+
+# Only lint project source and tests; skip build artifacts and dependencies.
+included:
+  - Sources
+  - Tests
+
+excluded:
+  - .build
+
+# Line length is intentionally generous because of long test names and URLs.
+line_length:
+  warning: 160
+  error: 200
+
+# Function/type body limits are relaxed to avoid flagging the large test suites
+# and coordinator-style types that exist today.
+function_body_length:
+  warning: 80
+  error: 120
+
+type_body_length:
+  warning: 300
+  error: 500
+
+# File length is relaxed because several test files and AppController exceed 500 LOC.
+file_length:
+  warning: 500
+  error: 1000
+
+# Identifier naming: allow single-letter variables commonly used in geometry,
+# loops, and identifiers like `id`. Also allow trailing underscores used to
+# avoid Swift keywords (e.g. `guard_`).
+identifier_name:
+  min_length:
+    warning: 2
+  allowed_symbols:
+    - _
+  excluded:
+    - id
+    - x
+    - y
+    - i
+    - j
+    - k
+
+# Type naming: keep default, but ensure short generic placeholders stay allowed.
+type_name:
+  min_length:
+    warning: 2
+  excluded:
+    - T
+    - E

@@ -31,7 +31,7 @@ final class CodingTUISession {
     var hasPrintedStaticHeader = false
     var appendModeActive = false
     var transcriptAppendState = StreamingTranscriptAppendState()
-    var currentAssistantBlockID: String? = nil
+    var currentAssistantBlockID: String?
 
     var lastTerminalSize: TerminalSize? = getTerminalSize()
 

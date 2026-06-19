@@ -91,7 +91,7 @@ private func registerAllowedTools(into executor: ToolExecutor, for tools: Subage
         ("grep", { GrepTool() }),
         ("bash", { BashTool(manager: bgManager) }),
         ("bg", { BgTool(manager: bgManager) }),
-        ("bg_status", { BgStatusTool(manager: bgManager) }),
+        ("bg_status", { BgStatusTool(manager: bgManager) })
     ]
 
     for (name, factory) in allTools {
