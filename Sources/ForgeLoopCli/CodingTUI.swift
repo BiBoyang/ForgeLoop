@@ -2,6 +2,7 @@ import Foundation
 import ForgeLoopAI
 import ForgeLoopAgent
 import ForgeLoopTUI
+import ForgeLoopDiagnostics
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -11,9 +12,10 @@ import Glibc
 @MainActor
 func runCodingTUIInternal(
     model: Model,
-    cwd: String
+    cwd: String,
+    diagnostics: Diagnostics = Diagnostics()
 ) async throws {
-    let session = await CodingTUISession(model: model, cwd: cwd)
+    let session = await CodingTUISession(model: model, cwd: cwd, diagnostics: diagnostics)
 
     let keyEvents: AsyncStream<KeyEvent>
     let inputReader: InputReader?

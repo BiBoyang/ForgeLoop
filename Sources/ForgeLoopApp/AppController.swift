@@ -3,6 +3,7 @@ import Foundation
 import ForgeLoopAI
 import ForgeLoopAgent
 import ForgeLoopCli
+import ForgeLoopDiagnostics
 import ForgeLoopTUI
 
 @MainActor
@@ -11,6 +12,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
     private let keyResolver = KeyResolver<KeyAction>(registry: makeKeybindings())
     private let sessionStore = SessionStore()
     private let modelStore = ModelStore()
+    private let diagnostics: Diagnostics
 
     private var window: NSWindow?
     private var titleLabel: NSTextField?
@@ -35,6 +37,40 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
 
     private let cwd = FileManager.default.currentDirectoryPath
 
+    override init() {
+        let defaults = UserDefaults.standard
+        let enabled = defaults.bool(forKey: "ForgeLoopAppTraceEnabled")
+        if enabled {
+            let fileURL = defaults.url(forKey: "ForgeLoopAppTraceFilePath")
+                ?? defaults.string(forKey: "ForgeLoopAppTraceFilePath").map { URL(fileURLWithPath: $0) }
+                ?? Self.defaultTraceFileURL()
+            let levelString = defaults.string(forKey: "ForgeLoopAppTraceLevel") ?? "debug"
+            let level: TraceLevel
+            switch levelString.lowercased() {
+            case "info": level = .info
+            case "warn", "warning": level = .warn
+            case "error": level = .error
+            default: level = .debug
+            }
+            let log = FileLogSink(fileURL: fileURL)
+            diagnostics = Diagnostics(
+                trace: LoggingTraceSystem(log: AppLevelFilteringLogSink(minimumLevel: level, sink: log)),
+                log: AppLevelFilteringLogSink(minimumLevel: level, sink: log)
+            )
+        } else {
+            diagnostics = Diagnostics()
+        }
+        super.init()
+    }
+
+    private static func defaultTraceFileURL() -> URL {
+        FileManager.default
+            .urls(for: .libraryDirectory, in: .userDomainMask)
+            .first?
+            .appendingPathComponent("Logs/forgeloop-trace.jsonl")
+        ?? URL(fileURLWithPath: "/tmp/forgeloop-trace.jsonl")
+    }
+
     // MARK: - Message Segment Types
 
     enum MessageSegmentType: Equatable {
@@ -54,6 +90,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Task {
+            await diagnostics.log.log(
+                level: .info,
+                message: "app.launch",
+                attributes: [
+                    "trace_enabled": .bool(UserDefaults.standard.bool(forKey: "ForgeLoopAppTraceEnabled"))
+                ]
+            )
+        }
+
         setupWindow()
         installKeyMonitor()
         updateViewportWidth()
@@ -66,11 +112,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
                 await restoreTabs(resolved: resolved)
 
                 if tabs.isEmpty {
-                    let agent = await makeCodingAgent(CodingAgentConfig(model: resolved.model, cwd: cwd))
+                    let agent = await makeCodingAgent(
+                        CodingAgentConfig(model: resolved.model, cwd: cwd),
+                        diagnostics: diagnostics
+                    )
                     let coordinator = SessionCoordinator(
                         agent: agent,
                         modelStore: modelStore,
-                        sessionStore: sessionStore
+                        sessionStore: sessionStore,
+                        diagnostics: diagnostics
                     )
                     let transcript = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
                     let tab = TabSession(id: UUID().uuidString, agent: agent, transcript: transcript, coordinator: coordinator)
@@ -113,10 +163,25 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        Task {
+            await diagnostics.log.log(
+                level: .info,
+                message: "app.terminate",
+                attributes: ["tab_count": .int(tabs.count)]
+            )
+        }
         removeKeyMonitor()
     }
 
     func windowWillClose(_ notification: Notification) {
+        Task {
+            await diagnostics.log.log(
+                level: .info,
+                message: "app.window.close",
+                attributes: ["tab_count": .int(tabs.count)]
+            )
+        }
+
         if let window {
             UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: "ForgeLoopWindowFrame")
         }
@@ -180,11 +245,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
               let meta = try? JSONDecoder().decode(TabMeta.self, from: metaData) else {
             // No tab metadata yet. Try to migrate a previous "last" session into the first tab.
             if let last = try? sessionStore.load(name: "last"), !last.messages.isEmpty {
-                let agent = await makeCodingAgent(CodingAgentConfig(model: resolved.model, cwd: cwd))
+                let agent = await makeCodingAgent(
+                    CodingAgentConfig(model: resolved.model, cwd: cwd),
+                    diagnostics: diagnostics
+                )
                 let coordinator = SessionCoordinator(
                     agent: agent,
                     modelStore: modelStore,
-                    sessionStore: sessionStore
+                    sessionStore: sessionStore,
+                    diagnostics: diagnostics
                 )
                 try? await coordinator.restoreLastSession()
                 let transcript = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
@@ -198,11 +267,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
 
         for (index, id) in meta.tabIDs.enumerated() {
             guard let record = try? sessionStore.load(name: "tab-\(id)") else { continue }
-            let agent = await makeCodingAgent(CodingAgentConfig(model: resolved.model, cwd: cwd))
+            let agent = await makeCodingAgent(
+                CodingAgentConfig(model: resolved.model, cwd: cwd),
+                diagnostics: diagnostics
+            )
             let coordinator = SessionCoordinator(
                 agent: agent,
                 modelStore: modelStore,
-                sessionStore: sessionStore
+                sessionStore: sessionStore,
+                diagnostics: diagnostics
             )
             try? await coordinator.agent.restoreSession(
                 messages: record.messages,
@@ -226,17 +299,26 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         guard let firstTab = tabs.first else { return }
         let config = CodingAgentConfig(model: firstTab.agent.state.model, cwd: cwd)
         Task {
-            let agent = await makeCodingAgent(config)
+            let agent = await makeCodingAgent(config, diagnostics: diagnostics)
             let coordinator = SessionCoordinator(
                 agent: agent,
                 modelStore: modelStore,
-                sessionStore: sessionStore
+                sessionStore: sessionStore,
+                diagnostics: diagnostics
             )
             let transcript = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
             let tab = TabSession(id: UUID().uuidString, agent: agent, transcript: transcript, coordinator: coordinator)
             setupSubscriptions(for: tab)
             tabs.append(tab)
             activeTabIndex = tabs.count - 1
+            await diagnostics.log.log(
+                level: .info,
+                message: "app.tab.created",
+                attributes: [
+                    "tab_id": .string(tab.id),
+                    "tab_count": .int(tabs.count)
+                ]
+            )
             render()
         }
     }
@@ -244,11 +326,22 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
     private func closeCurrentTab() {
         guard !tabs.isEmpty else { NSApp.terminate(nil); return }
         let tab = tabs[activeTabIndex]
+        let closedID = tab.id
         let msgs = tab.agent.state.messages
         if !msgs.isEmpty {
             try? sessionStore.save(name: "tab-\(tab.id)", modelID: tab.agent.state.model.id, messages: msgs)
         }
         tabs.remove(at: activeTabIndex)
+        Task {
+            await diagnostics.log.log(
+                level: .info,
+                message: "app.tab.closed",
+                attributes: [
+                    "tab_id": .string(closedID),
+                    "remaining_tabs": .int(tabs.count)
+                ]
+            )
+        }
         if tabs.isEmpty {
             NSApp.terminate(nil)
             return
@@ -261,6 +354,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
 
     @objc private func tabSelected(_ sender: NSSegmentedControl) {
         activeTabIndex = sender.selectedSegment
+        let index = activeTabIndex
+        let tabID = activeTab.id
+        Task {
+            await diagnostics.log.log(
+                level: .info,
+                message: "app.tab.selected",
+                attributes: [
+                    "tab_index": .int(index),
+                    "tab_id": .string(tabID)
+                ]
+            )
+        }
         render()
     }
 
@@ -411,6 +516,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         let modelID = modelPickerIDs[index]
         guard modelID != activeTab.agent.state.model.id else { return }
         Task { @MainActor in
+            await diagnostics.log.log(
+                level: .info,
+                message: "app.model.switch",
+                attributes: [
+                    "from_model": .string(activeTab.agent.state.model.id),
+                    "to_model": .string(modelID)
+                ]
+            )
             try? await activeTab.coordinator.switchModel(to: modelID)
             populateModelPicker()
             render()
@@ -656,7 +769,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
         // Tab selector synchronization.
         if let tabSelector {
             tabSelector.segmentCount = tabs.count
-            for (i, _) in tabs.enumerated() {
+            for i in tabs.indices {
                 tabSelector.setLabel("Session \(i + 1)", forSegment: i)
             }
             if tabSelector.selectedSegment != activeTabIndex {
@@ -832,4 +945,32 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate, NS
 private struct TabMeta: Codable {
     var tabIDs: [String]
     var activeIndex: Int
+}
+
+private struct AppLevelFilteringLogSink: LogSystem {
+    private let minimumLevel: TraceLevel
+    private let sink: LogSystem
+
+    init(minimumLevel: TraceLevel, sink: LogSystem) {
+        self.minimumLevel = minimumLevel
+        self.sink = sink
+    }
+
+    func log(
+        level: TraceLevel,
+        message: String,
+        attributes: [String: TraceAttribute]
+    ) async {
+        guard levelOrder(level) >= levelOrder(minimumLevel) else { return }
+        await sink.log(level: level, message: message, attributes: attributes)
+    }
+
+    private func levelOrder(_ level: TraceLevel) -> Int {
+        switch level {
+        case .debug: return 0
+        case .info: return 1
+        case .warn: return 2
+        case .error: return 3
+        }
+    }
 }

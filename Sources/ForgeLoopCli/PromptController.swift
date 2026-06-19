@@ -2,6 +2,7 @@ import Foundation
 import ForgeLoopAI
 import ForgeLoopAgent
 import ForgeLoopTUI
+import ForgeLoopDiagnostics
 
 public func suggestedModelPickerItems(for currentModel: Model) -> [ListPickerItem] {
     let preferredIDs: [String]
@@ -69,29 +70,46 @@ public struct PromptController {
 
     private let coordinator: SessionCoordinator
     let agent: Agent
+    private let diagnostics: Diagnostics
 
     init(
         agent: Agent,
         modelStore: ModelStore? = nil,
         attachmentStore: AttachmentStore = AttachmentStore(),
         sessionStore: SessionStore = SessionStore(),
-        slashCommandRegistry: SlashCommandRegistry = makeDefaultSlashCommandRegistry()
+        slashCommandRegistry: SlashCommandRegistry = makeDefaultSlashCommandRegistry(),
+        diagnostics: Diagnostics = Diagnostics()
     ) {
         self.agent = agent
+        self.diagnostics = diagnostics
         self.coordinator = SessionCoordinator(
             agent: agent,
             modelStore: modelStore,
             attachmentStore: attachmentStore,
             sessionStore: sessionStore,
-            slashCommandRegistry: slashCommandRegistry
+            slashCommandRegistry: slashCommandRegistry,
+            diagnostics: diagnostics
         )
     }
 
     func submit(_ text: String) async throws -> SubmitResult {
-        try await coordinator.submit(text)
+        await diagnostics.log.log(
+            level: .debug,
+            message: "prompt.submit",
+            attributes: [
+                "text_length": .int(text.count),
+                "is_streaming": .bool(agent.state.isStreaming)
+            ]
+        )
+        return try await coordinator.submit(text)
     }
 
     func handleSlashCommand(_ text: String) async -> SubmitResult {
-        await coordinator.handleSlashCommand(text)
+        await diagnostics.log.log(
+            level: .debug,
+            message: "prompt.slash_command",
+            attributes: ["command_preview": .string(String(text.prefix(40)))]
+        )
+        return await coordinator.handleSlashCommand(text)
     }
 }

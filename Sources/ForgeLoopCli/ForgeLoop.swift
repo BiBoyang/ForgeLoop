@@ -1,14 +1,20 @@
 import Foundation
 import ForgeLoopAgent
 import ForgeLoopAI
+import ForgeLoopDiagnostics
 
 public enum ForgeLoop {
-    public static func runCodingTUI(cwd: String? = nil, modelOverride: String? = nil) async throws {
+    public static func runCodingTUI(
+        cwd: String? = nil,
+        modelOverride: String? = nil,
+        diagnostics: Diagnostics = Diagnostics()
+    ) async throws {
         let resolved = try await resolveAgentAuth(modelOverride: modelOverride)
         let workDir = cwd ?? FileManager.default.currentDirectoryPath
         try await runCodingTUIInternal(
             model: resolved.model,
-            cwd: workDir
+            cwd: workDir,
+            diagnostics: diagnostics
         )
     }
 

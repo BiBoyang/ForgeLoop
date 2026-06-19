@@ -37,6 +37,7 @@ let package = Package(
             dependencies: [
                 "ForgeLoopAI",
                 "ForgeLoopAgent",
+                "ForgeLoopDiagnostics",
                 .product(name: "ForgeLoopTUI", package: "ForgeLoopTUI"),
             ],
             path: "Sources/ForgeLoopCli"
@@ -73,6 +74,7 @@ let package = Package(
                 "ForgeLoopAgent",
                 "ForgeLoopAI",
                 "ForgeLoopTestSupport",
+                "ForgeLoopDiagnostics",
                 .product(name: "ForgeLoopTUI", package: "ForgeLoopTUI"),
             ],
             path: "Tests/ForgeLoopCliTests"

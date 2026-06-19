@@ -2,6 +2,7 @@ import Foundation
 import ForgeLoopAI
 import ForgeLoopAgent
 import ForgeLoopTUI
+import ForgeLoopDiagnostics
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -18,6 +19,7 @@ final class CodingTUISession {
     let modelStore: ModelStore
     let sessionStore: SessionStore
     let pickerRenderer: ListPickerRenderer
+    let diagnostics: Diagnostics
 
     var inputState = MultiLineInputState()
     var inputHistory = PromptHistory()
@@ -40,7 +42,8 @@ final class CodingTUISession {
 
     var bgMonitor: Task<Void, Never>?
 
-    init(model: Model, cwd: String) async {
+    init(model: Model, cwd: String, diagnostics: Diagnostics = Diagnostics()) async {
+        self.diagnostics = diagnostics
         let isInteractiveTTY = isatty(STDOUT_FILENO) == 1 && isatty(STDIN_FILENO) == 1
         tui = TUI(
             isTTY: isInteractiveTTY,
@@ -49,7 +52,10 @@ final class CodingTUISession {
             cursorPositioningMode: .marker
         )
         renderer = TranscriptRenderer(markdownOptions: forgeLoopMarkdownRenderOptions())
-        agent = await makeCodingAgent(CodingAgentConfig(model: model, cwd: cwd))
+        agent = await makeCodingAgent(
+            CodingAgentConfig(model: model, cwd: cwd),
+            diagnostics: diagnostics
+        )
         modelStore = ModelStore()
         sessionStore = SessionStore()
         pickerRenderer = ListPickerRenderer()
@@ -64,10 +70,24 @@ final class CodingTUISession {
             modelStore.save(agent.state.model)
         }
 
-        controller = PromptController(agent: agent, modelStore: modelStore, attachmentStore: attachmentStore, sessionStore: sessionStore)
+        controller = PromptController(
+            agent: agent,
+            modelStore: modelStore,
+            attachmentStore: attachmentStore,
+            sessionStore: sessionStore,
+            diagnostics: diagnostics
+        )
         keyResolver = KeyResolver(registry: makeKeybindings())
 
         let disableRenderLoop = ProcessInfo.processInfo.environment["FORGELOOP_TUI_RENDER_LOOP"] == "0"
+        await diagnostics.log.log(
+            level: .debug,
+            message: "tui.render_mode",
+            attributes: [
+                "is_tty": .bool(isInteractiveTTY),
+                "render_loop_disabled": .bool(disableRenderLoop)
+            ]
+        )
         renderLoop = disableRenderLoop
             ? nil
             : RenderLoop(render: { [tui] frame in
