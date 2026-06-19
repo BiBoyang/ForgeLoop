@@ -1,5 +1,37 @@
 # Review Log
 
+## 2026-06-18
+- P0–P2 修复收口完成，发布 `v0.3.0`。
+- P0（安全与并发修复）：
+  - 修复 `AssistantMessageStream` 与 `CancellationHandle` 竞态；
+  - 修复 `BashTool` / `ProcessRunner` 命令注入风险；
+  - 修复 `CredentialStore` 与 `SessionStore` 安全与权限问题；
+  - 修复 `AgentState` 跨层直接写入问题，CLI/App 统一通过 `Agent` 公共 API；
+  - 修复 `ForgeLoopApp` `/attach` 失效与跨前端状态共享。
+- P1（并发隐患与工具修复）：
+  - `SSEParser` 改为 struct、`Agent` 可变属性加锁、Provider `Task.detached` 改为结构化并发；
+  - 修复 `EditTool` 校验/锚点/备份、`PathGuard` symlink 解析、`BackgroundTaskManager` 资源上限；
+  - 补齐测试覆盖并修复 flaky 用例；
+  - 提取 `SessionCoordinator` 统一 CLI 与 AppKit 会话逻辑。
+- P2（重构、测试、文档）：
+  - 同步 README / ARCHITECTURE / AGENTS / RELEASE-CHECKLIST；
+  - 改进 `SlashCommandRegistry` 命令解析；
+  - `ModelStore` / `CredentialStore` 增加文件 I/O 序列化保护；
+  - 提取 `ForgeLoopTestSupport` 公共测试辅助模块；
+  - 新增跨 Provider 契约测试（OpenAI responses/chat、Anthropic、Gemini）；
+  - 拆分 `CodingTUI.swift`（933 → 70 行），提取 `CodingTUIStatus`、`CodingTUIKeybindings`、`CodingTUISession` 及渲染/输入扩展。
+- 工程与发布：
+  - 拆分 CI 为 `.github/workflows/ci.yml`（PR/push 门禁）与 `.github/workflows/nightly.yml`（定时 + dispatch + release-check）；
+  - 升级到 Node.js 24 兼容的 action 版本，移除 deprecation warning；
+  - 修复 `Scripts/release-check.sh` 中对已删除文件的引用；
+  - 新增 `COLLABORATION.md` 与 `KIMI.md`，统一 Agent 协作配置入口；
+  - 移除所有对 `docs/03-Step看板.md` 的引用。
+- 验证：
+  - `swift build` OK；
+  - `swift test` 564 tests，0 failures；
+  - Nightly workflow #2 手动触发成功，`release-check.sh` 通过，`.build` 缓存命中。
+- 下一步：进入 P3 规划。
+
 ## 2026-04-21
 - 初始化协作结构与评审规范。
 - 下一步：进入 `STEP-001` 开发与评审循环。
