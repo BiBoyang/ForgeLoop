@@ -1,4 +1,5 @@
 import Foundation
+import ForgeLoopDiagnostics
 
 public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
     public let api: String
@@ -19,14 +20,27 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
         self.httpClient = httpClient
     }
 
-    public func stream(model: Model, context: Context, options: StreamOptions?) -> AssistantMessageStream {
+    public func stream(model: Model, context: Context, options: StreamOptions?) async -> AssistantMessageStream {
         let out = AssistantMessageStream()
         let worker = Task { [self] in
+            let diagnostics = options?.diagnostics ?? Diagnostics()
+            let span = await diagnostics.trace.startSpan(
+                name: "provider.stream",
+                parent: options?.traceContext,
+                layer: "AI",
+                operation: "stream",
+                attributes: [
+                    "provider": .string(api),
+                    "model": .string(model.id)
+                ]
+            )
             await runStream(
                 model: model,
                 context: context,
                 options: options,
-                output: out
+                output: out,
+                diagnostics: diagnostics,
+                span: span
             )
         }
         options?.cancellation?.onCancel { _ in
@@ -35,11 +49,14 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
         return out
     }
 
+    // swiftlint:disable:next function_parameter_count
     private func runStream(
         model: Model,
         context: Context,
         options: StreamOptions?,
-        output: AssistantMessageStream
+        output: AssistantMessageStream,
+        diagnostics: Diagnostics,
+        span: TraceContext
     ) async {
         var partial = AssistantMessage(
             content: [.text(TextContent(text: ""))],
@@ -48,6 +65,31 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
         var ended = false
         var pendingToolCalls: [String: ResponsesPendingToolCall] = [:]
         var callOrder: [String] = []
+        var lastMessageUpdateLog: ContinuousClock.Instant?
+
+        func finishSpan(_ error: TraceError?) async {
+            await diagnostics.trace.endSpan(span, attributes: [:], error: error)
+        }
+
+        func logTextDelta() async {
+            let now = ContinuousClock().now
+            if let last = lastMessageUpdateLog, now.advanced(by: .seconds(-1)) < last {
+                return
+            }
+            await diagnostics.log.log(
+                level: .debug,
+                message: "message.text.delta",
+                attributes: ["provider": .string(api)]
+            )
+            lastMessageUpdateLog = now
+        }
+
+        /// Mutable box for propagating the first span error out of nested helper functions.
+        /// `@unchecked Sendable` because it is only accessed serially within a single `runStream` task.
+        final class SpanErrorBox: @unchecked Sendable {
+            var error: TraceError?
+        }
+        let spanError = SpanErrorBox()
 
         func text(from message: AssistantMessage) -> String {
             message.content.compactMap { block -> String? in
@@ -81,7 +123,7 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
             )
         }
 
-        func endWithDone(toolUse: Bool = false) {
+        func endWithDone(toolUse: Bool = false) async {
             guard !ended else { return }
             ended = true
             let stopReason: StopReason = toolUse ? .toolUse : .endTurn
@@ -91,11 +133,15 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
                 output.push(.textEnd(contentIndex: 0, content: textContent, partial: final))
             }
             output.push(.done(reason: stopReason, message: final))
+            await finishSpan(spanError.error)
             output.end(final)
         }
 
-        func endWithError(reason: StopReason, message: String) {
+        func endWithError(reason: StopReason, message: String) async {
             guard !ended else { return }
+            if spanError.error == nil {
+                spanError.error = TraceError(type: "ProviderError", message: message)
+            }
             ended = true
             let final = buildFinalMessage(stopReason: reason)
             let finalWithError = AssistantMessage(
@@ -104,32 +150,37 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
                 errorMessage: message
             )
             output.push(.error(reason: reason, error: finalWithError))
+            await finishSpan(spanError.error)
             output.end(finalWithError)
         }
 
-        func endAbortedIfNeeded() -> Bool {
+        func endAbortedIfNeeded() async -> Bool {
             let cancelled = options?.cancellation?.isCancelled == true || Task.isCancelled
             guard cancelled else { return false }
-            endWithError(reason: .aborted, message: "Request was aborted")
+            spanError.error = TraceError(type: "Cancellation", message: "Request was aborted")
+            await endWithError(reason: .aborted, message: "Request was aborted")
             return true
         }
 
         output.push(.start(partial: partial))
         output.push(.textStart(contentIndex: 0, partial: partial))
 
-        if endAbortedIfNeeded() {
+        if await endAbortedIfNeeded() {
             return
         }
 
         let apiKey = options?.apiKey ?? defaultAPIKey
         guard let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            endWithError(reason: .error, message: "Missing OpenAI API key")
+            spanError.error = TraceError(type: "ProviderError", message: "Missing OpenAI API key")
+            await endWithError(reason: .error, message: "Missing OpenAI API key")
             return
         }
 
         let requestBaseURL = model.baseUrl.isEmpty ? defaultBaseURL : model.baseUrl
         guard let url = Self.responsesURL(baseURL: requestBaseURL) else {
-            endWithError(reason: .error, message: "Invalid base URL: \(requestBaseURL)")
+            let message = "Invalid base URL: \(requestBaseURL)"
+            spanError.error = TraceError(type: "ProviderError", message: message)
+            await endWithError(reason: .error, message: message)
             return
         }
 
@@ -140,7 +191,8 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
         )
 
         guard let body = try? JSONEncoder().encode(requestBody) else {
-            endWithError(reason: .error, message: "Failed to encode request body")
+            spanError.error = TraceError(type: "ProviderError", message: "Failed to encode request body")
+            await endWithError(reason: .error, message: "Failed to encode request body")
             return
         }
 
@@ -153,17 +205,18 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
                     "accept": "text/event-stream",
                     "authorization": "Bearer \(apiKey)"
                 ],
-                body: body
+                body: body,
+                traceContext: span
             )
 
-            if endAbortedIfNeeded() {
+            if await endAbortedIfNeeded() {
                 return
             }
 
             guard (200...299).contains(response.statusCode) else {
                 var bytes: [UInt8] = []
                 for try await byte in byteStream {
-                    if endAbortedIfNeeded() {
+                    if await endAbortedIfNeeded() {
                         return
                     }
                     bytes.append(byte)
@@ -172,11 +225,11 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
                     }
                 }
                 let bodyText = String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-                if bodyText.isEmpty {
-                    endWithError(reason: .error, message: "OpenAI Responses HTTP \(response.statusCode)")
-                } else {
-                    endWithError(reason: .error, message: "OpenAI Responses HTTP \(response.statusCode): \(bodyText)")
-                }
+                let errorMessage = bodyText.isEmpty
+                    ? "OpenAI Responses HTTP \(response.statusCode)"
+                    : "OpenAI Responses HTTP \(response.statusCode): \(bodyText)"
+                spanError.error = TraceError(type: "HTTPError", message: errorMessage)
+                await endWithError(reason: .error, message: errorMessage)
                 return
             }
 
@@ -184,7 +237,7 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
             var lineBuffer: [UInt8] = []
 
             for try await byte in byteStream {
-                if endAbortedIfNeeded() {
+                if await endAbortedIfNeeded() {
                     return
                 }
                 lineBuffer.append(byte)
@@ -195,14 +248,20 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
                     lineBuffer.removeAll(keepingCapacity: true)
 
                     for message in parser.drain() {
-                        if endAbortedIfNeeded() {
+                        if await endAbortedIfNeeded() {
                             return
                         }
 
                         let eventType = Self.resolveEventType(message: message)
+                        await diagnostics.log.log(
+                            level: .debug,
+                            message: "sse.parse.event",
+                            attributes: ["event_type": .string(eventType)]
+                        )
                         switch eventType {
                         case "response.output_text.delta":
                             guard let delta = Self.resolveDelta(message: message), !delta.isEmpty else { continue }
+                            await logTextDelta()
                             let merged = text(from: partial) + delta
                             partial = AssistantMessage(
                                 content: [.text(TextContent(text: merged))],
@@ -247,10 +306,12 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
                             }
 
                         case "response.completed":
-                            endWithDone(toolUse: !pendingToolCalls.isEmpty)
+                            await endWithDone(toolUse: !pendingToolCalls.isEmpty)
                             return
                         case "response.failed", "response.error":
-                            endWithError(reason: .error, message: Self.resolveErrorMessage(message: message))
+                            let errorMessage = Self.resolveErrorMessage(message: message)
+                            spanError.error = TraceError(type: "ProviderError", message: errorMessage)
+                            await endWithError(reason: .error, message: errorMessage)
                             return
                         default:
                             continue
@@ -264,14 +325,20 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
             }
 
             for message in parser.finish() {
-                if endAbortedIfNeeded() {
+                if await endAbortedIfNeeded() {
                     return
                 }
 
                 let eventType = Self.resolveEventType(message: message)
+                await diagnostics.log.log(
+                    level: .debug,
+                    message: "sse.parse.event",
+                    attributes: ["event_type": .string(eventType)]
+                )
                 switch eventType {
                 case "response.output_text.delta":
                     guard let delta = Self.resolveDelta(message: message), !delta.isEmpty else { continue }
+                    await logTextDelta()
                     let merged = text(from: partial) + delta
                     partial = AssistantMessage(
                         content: [.text(TextContent(text: merged))],
@@ -319,25 +386,29 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
                     }
 
                 case "response.completed":
-                    endWithDone(toolUse: !pendingToolCalls.isEmpty)
+                    await endWithDone(toolUse: !pendingToolCalls.isEmpty)
                     return
                 case "response.failed", "response.error":
-                    endWithError(reason: .error, message: Self.resolveErrorMessage(message: message))
+                    let errorMessage = Self.resolveErrorMessage(message: message)
+                    spanError.error = TraceError(type: "ProviderError", message: errorMessage)
+                    await endWithError(reason: .error, message: errorMessage)
                     return
                 default:
                     continue
                 }
             }
 
-            if endAbortedIfNeeded() {
+            if await endAbortedIfNeeded() {
                 return
             }
-            endWithDone(toolUse: !pendingToolCalls.isEmpty)
+            await endWithDone(toolUse: !pendingToolCalls.isEmpty)
         } catch {
-            if endAbortedIfNeeded() {
+            if await endAbortedIfNeeded() {
                 return
             }
-            endWithError(reason: .error, message: "OpenAI Responses stream failed: \(error)")
+            let errorMessage = "OpenAI Responses stream failed: \(error)"
+            spanError.error = TraceError(type: "StreamError", message: errorMessage)
+            await endWithError(reason: .error, message: errorMessage)
         }
     }
 

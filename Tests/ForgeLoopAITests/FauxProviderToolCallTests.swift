@@ -22,7 +22,7 @@ final class FauxProviderToolCallTests: XCTestCase {
 
     func testToolCallModeProducesToolUse() async throws {
         let provider = FauxProvider(mode: .toolCall(name: "read", arguments: "{\"path\":\"a.txt\"}"))
-        let stream = provider.stream(model: testModel, context: testContext, options: nil as StreamOptions?)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil as StreamOptions?)
 
         let result = await stream.result()
         XCTAssertEqual(result.stopReason, .toolUse)
@@ -43,7 +43,7 @@ final class FauxProviderToolCallTests: XCTestCase {
             tokenDelayNanos: 0,
             mode: .textThenToolCall(text: "OK", toolName: "write", toolArguments: "{\"path\":\"b.txt\"}")
         )
-        let stream = provider.stream(model: testModel, context: testContext, options: nil as StreamOptions?)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil as StreamOptions?)
 
         var events: [AssistantMessageEvent] = []
         for await event in stream {
@@ -83,7 +83,7 @@ final class FauxProviderToolCallTests: XCTestCase {
             (name: "read", arguments: "{\"a\":1}"),
             (name: "write", arguments: "{\"b\":2}")
         ]))
-        let stream = provider.stream(model: testModel, context: testContext, options: nil as StreamOptions?)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil as StreamOptions?)
 
         let result = await stream.result()
         XCTAssertEqual(result.stopReason, .toolUse)
@@ -103,7 +103,7 @@ final class FauxProviderToolCallTests: XCTestCase {
         let provider = FauxProvider(mode: .toolCall(name: "read", arguments: "{}"))
         let cancellation = CancellationHandle()
 
-        let stream = provider.stream(
+        let stream = await provider.stream(
             model: testModel,
             context: testContext,
             options: StreamOptions(cancellation: cancellation)
@@ -134,7 +134,7 @@ final class FauxProviderToolCallTests: XCTestCase {
 
     func testDefaultTextModeUnchanged() async throws {
         let provider = FauxProvider()
-        let stream = provider.stream(model: testModel, context: testContext, options: nil as StreamOptions?)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil as StreamOptions?)
 
         let result = await stream.result()
         XCTAssertEqual(result.stopReason, .endTurn)

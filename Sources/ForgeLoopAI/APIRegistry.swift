@@ -1,8 +1,9 @@
 import Foundation
+import ForgeLoopDiagnostics
 
 public protocol APIProvider: Sendable {
     var api: String { get }
-    func stream(model: Model, context: Context, options: StreamOptions?) -> AssistantMessageStream
+    func stream(model: Model, context: Context, options: StreamOptions?) async -> AssistantMessageStream
 }
 
 public actor APIRegistry {
@@ -42,14 +43,50 @@ public enum ProviderNotFoundError: Error, LocalizedError, Equatable {
     }
 }
 
-public func stream(model: Model, context: Context, options: StreamOptions? = nil) async throws -> AssistantMessageStream {
+public func stream(
+    model: Model,
+    context: Context,
+    options: StreamOptions? = nil
+) async throws -> AssistantMessageStream {
+    let diagnostics = options?.diagnostics ?? Diagnostics()
+    let span = await diagnostics.trace.startSpan(
+        name: "provider.stream",
+        parent: options?.traceContext,
+        layer: "AI",
+        operation: "stream",
+        attributes: [
+            "api": .string(model.api),
+            "model_id": .string(model.id),
+            "provider": .string(model.provider)
+        ]
+    )
+
     guard let provider = await APIRegistry.shared.provider(for: model.api) else {
+        await diagnostics.trace.endSpan(
+            span,
+            attributes: [:],
+            error: TraceError(
+                type: "ProviderNotFound",
+                message: "No provider for api: \(model.api)"
+            )
+        )
         throw ProviderNotFoundError.api(model.api)
     }
-    return provider.stream(model: model, context: context, options: options)
+
+    let stream = await provider.stream(
+        model: model,
+        context: context,
+        options: options
+    )
+    await diagnostics.trace.endSpan(span, attributes: [:], error: nil)
+    return stream
 }
 
-public func complete(model: Model, context: Context, options: StreamOptions? = nil) async throws -> AssistantMessage {
+public func complete(
+    model: Model,
+    context: Context,
+    options: StreamOptions? = nil
+) async throws -> AssistantMessage {
     let messageStream = try await stream(model: model, context: context, options: options)
     for await _ in messageStream {}
     return await messageStream.result()

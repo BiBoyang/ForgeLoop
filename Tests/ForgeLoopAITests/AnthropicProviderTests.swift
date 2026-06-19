@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 @testable import ForgeLoopAI
 @testable import ForgeLoopTestSupport
+import ForgeLoopDiagnostics
 
 final class AnthropicProviderTests: XCTestCase {
     private var testModel: Model {
@@ -50,7 +51,7 @@ data: {"type":"message_stop"}
         let client = StubAnthropicHTTPClient(statusCode: 200, payload: payload)
         let provider = AnthropicProvider(defaultAPIKey: "sk-test", httpClient: client)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: nil)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil)
         var events: [AssistantMessageEvent] = []
         for await event in stream {
             events.append(event)
@@ -120,7 +121,7 @@ data: {"type":"message_stop"}
         let client = StubAnthropicHTTPClient(statusCode: 200, payload: payload)
         let provider = AnthropicProvider(defaultAPIKey: "sk-test", httpClient: client)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: nil)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil)
         let result = await stream.result()
 
         XCTAssertEqual(result.stopReason, .toolUse)
@@ -166,7 +167,7 @@ data: {"type":"message_stop"}
         let provider = AnthropicProvider(defaultAPIKey: "sk-test", httpClient: client)
         let cancellation = CancellationHandle()
 
-        let stream = provider.stream(
+        let stream = await provider.stream(
             model: testModel,
             context: testContext,
             options: StreamOptions(cancellation: cancellation)
@@ -239,7 +240,7 @@ data: {"type":"message_stop"}
             ]
         )
 
-        let stream = provider.stream(
+        let stream = await provider.stream(
             model: testModel,
             context: context,
             options: StreamOptions(tools: [toolDef], toolChoice: "auto")
@@ -355,7 +356,8 @@ private final class StubAnthropicHTTPClient: HTTPClient, @unchecked Sendable {
         url: URL,
         method: String,
         headers: [String: String],
-        body: Data?
+        body: Data?,
+        traceContext: TraceContext?
     ) async throws -> (HTTPURLResponse, AsyncThrowingStream<UInt8, Error>) {
         await store.set(CapturedAnthropicRequest(url: url, method: method, headers: headers, body: body))
 

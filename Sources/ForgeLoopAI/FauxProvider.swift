@@ -1,4 +1,5 @@
 import Foundation
+import ForgeLoopDiagnostics
 
 public enum FauxProviderMode: Sendable {
     case text
@@ -18,19 +19,66 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
         self.mode = mode
     }
 
-    public func stream(model: Model, context: Context, options: StreamOptions?) -> AssistantMessageStream {
+    public func stream(model: Model, context: Context, options: StreamOptions?) async -> AssistantMessageStream {
         let out = AssistantMessageStream()
         let worker = Task { [tokenDelayNanos, mode] in
+            let diagnostics = options?.diagnostics ?? Diagnostics()
+            let span = await diagnostics.trace.startSpan(
+                name: "provider.stream",
+                parent: options?.traceContext,
+                layer: "AI",
+                operation: "stream",
+                attributes: [
+                    "provider": .string(api),
+                    "model": .string(model.id)
+                ]
+            )
             switch mode {
             case .text:
-                await Self.runTextMode(context: context, options: options, output: out, tokenDelayNanos: tokenDelayNanos)
+                await Self.runTextMode(
+                    context: context,
+                    options: options,
+                    output: out,
+                    tokenDelayNanos: tokenDelayNanos,
+                    diagnostics: diagnostics,
+                    span: span
+                )
             case .toolCall(let name, let arguments):
-                await Self.runToolCallMode(toolName: name, arguments: arguments, options: options, output: out)
+                await Self.runToolCallMode(
+                    toolName: name,
+                    arguments: arguments,
+                    options: options,
+                    output: out,
+                    diagnostics: diagnostics,
+                    span: span
+                )
             case .textThenToolCall(let text, let toolName, let toolArguments):
-                await Self.runTextThenToolCallMode(text: text, toolName: toolName, toolArguments: toolArguments, options: options, output: out, tokenDelayNanos: tokenDelayNanos)
+                await Self.runTextThenToolCallMode(
+                    text: text,
+                    toolName: toolName,
+                    toolArguments: toolArguments,
+                    options: options,
+                    output: out,
+                    tokenDelayNanos: tokenDelayNanos,
+                    diagnostics: diagnostics,
+                    span: span
+                )
             case .multipleToolCalls(let tools):
-                await Self.runMultipleToolCallsMode(tools: tools, options: options, output: out)
+                await Self.runMultipleToolCallsMode(
+                    tools: tools,
+                    options: options,
+                    output: out,
+                    diagnostics: diagnostics,
+                    span: span
+                )
             }
+
+            let cancelled = options?.cancellation?.isCancelled == true || Task.isCancelled
+            await diagnostics.trace.endSpan(
+                span,
+                attributes: [:],
+                error: cancelled ? TraceError(type: "Cancellation", message: "Request was aborted") : nil
+            )
         }
         options?.cancellation?.onCancel { _ in
             worker.cancel()
@@ -40,14 +88,32 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
 
     // MARK: - Text Mode (default, preserves existing behavior)
 
+    // swiftlint:disable:next function_parameter_count
     private static func runTextMode(
         context: Context,
         options: StreamOptions?,
         output: AssistantMessageStream,
-        tokenDelayNanos: UInt64
+        tokenDelayNanos: UInt64,
+        diagnostics: Diagnostics,
+        span: TraceContext
     ) async {
         let answer = Self.buildAnswer(context: context)
         var partial = AssistantMessage(content: [.text(TextContent(text: ""))], stopReason: .endTurn)
+        var lastMessageUpdateLog: ContinuousClock.Instant?
+
+        func logTextDelta() async {
+            let now = ContinuousClock().now
+            if let last = lastMessageUpdateLog, now.advanced(by: .seconds(-1)) < last {
+                return
+            }
+            await diagnostics.log.log(
+                level: .debug,
+                message: "message.text.delta",
+                attributes: ["provider": .string("faux")]
+            )
+            lastMessageUpdateLog = now
+        }
+
         output.push(.start(partial: partial))
         output.push(.textStart(contentIndex: 0, partial: partial))
 
@@ -68,6 +134,7 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
             let merged = partialText(from: partial) + chunk
             partial = AssistantMessage(content: [.text(TextContent(text: merged))], stopReason: .endTurn)
             output.push(.textDelta(contentIndex: 0, delta: chunk, partial: partial))
+            await logTextDelta()
             do {
                 try await Task.sleep(nanoseconds: tokenDelayNanos)
             } catch {
@@ -89,11 +156,14 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
 
     // MARK: - Tool Call Mode
 
+    // swiftlint:disable:next function_parameter_count
     private static func runToolCallMode(
         toolName: String,
         arguments: String,
         options: StreamOptions?,
-        output: AssistantMessageStream
+        output: AssistantMessageStream,
+        diagnostics: Diagnostics,
+        span: TraceContext
     ) async {
         func emitAbortIfNeeded() -> Bool {
             guard options?.cancellation?.isCancelled == true || Task.isCancelled else { return false }
@@ -125,15 +195,33 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
 
     // MARK: - Text Then Tool Call Mode
 
+    // swiftlint:disable:next function_parameter_count
     private static func runTextThenToolCallMode(
         text: String,
         toolName: String,
         toolArguments: String,
         options: StreamOptions?,
         output: AssistantMessageStream,
-        tokenDelayNanos: UInt64
+        tokenDelayNanos: UInt64,
+        diagnostics: Diagnostics,
+        span: TraceContext
     ) async {
         var partial = AssistantMessage(content: [.text(TextContent(text: ""))], stopReason: .endTurn)
+        var lastMessageUpdateLog: ContinuousClock.Instant?
+
+        func logTextDelta() async {
+            let now = ContinuousClock().now
+            if let last = lastMessageUpdateLog, now.advanced(by: .seconds(-1)) < last {
+                return
+            }
+            await diagnostics.log.log(
+                level: .debug,
+                message: "message.text.delta",
+                attributes: ["provider": .string("faux")]
+            )
+            lastMessageUpdateLog = now
+        }
+
         output.push(.start(partial: partial))
         output.push(.textStart(contentIndex: 0, partial: partial))
 
@@ -158,6 +246,7 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
             let merged = partialText(from: partial) + chunk
             partial = AssistantMessage(content: [.text(TextContent(text: merged))], stopReason: .endTurn)
             output.push(.textDelta(contentIndex: 0, delta: chunk, partial: partial))
+            await logTextDelta()
             do {
                 try await Task.sleep(nanoseconds: tokenDelayNanos)
             } catch {
@@ -188,7 +277,9 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
     private static func runMultipleToolCallsMode(
         tools: [(name: String, arguments: String)],
         options: StreamOptions?,
-        output: AssistantMessageStream
+        output: AssistantMessageStream,
+        diagnostics: Diagnostics,
+        span: TraceContext
     ) async {
         func emitAbortIfNeeded() -> Bool {
             guard options?.cancellation?.isCancelled == true || Task.isCancelled else { return false }

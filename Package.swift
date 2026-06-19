@@ -10,6 +10,7 @@ let package = Package(
         .library(name: "ForgeLoopAI", targets: ["ForgeLoopAI"]),
         .library(name: "ForgeLoopAgent", targets: ["ForgeLoopAgent"]),
         .library(name: "ForgeLoopCli", targets: ["ForgeLoopCli"]),
+        .library(name: "ForgeLoopDiagnostics", targets: ["ForgeLoopDiagnostics"]),
         .executable(name: "forgeloop", targets: ["forgeloop"]),
         .executable(name: "ForgeLoopApp", targets: ["ForgeLoopApp"]),
     ],
@@ -18,7 +19,12 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "ForgeLoopDiagnostics",
+            path: "Sources/ForgeLoopDiagnostics"
+        ),
+        .target(
             name: "ForgeLoopAI",
+            dependencies: ["ForgeLoopDiagnostics"],
             path: "Sources/ForgeLoopAI"
         ),
         .target(
@@ -52,7 +58,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ForgeLoopAITests",
-            dependencies: ["ForgeLoopAI", "ForgeLoopTestSupport"],
+            dependencies: ["ForgeLoopAI", "ForgeLoopTestSupport", "ForgeLoopDiagnostics"],
             path: "Tests/ForgeLoopAITests"
         ),
         .testTarget(
@@ -75,6 +81,11 @@ let package = Package(
             name: "ForgeLoopTestSupport",
             dependencies: ["ForgeLoopAI", "ForgeLoopAgent"],
             path: "Tests/ForgeLoopTestSupport"
+        ),
+        .testTarget(
+            name: "ForgeLoopDiagnosticsTests",
+            dependencies: ["ForgeLoopDiagnostics"],
+            path: "Tests/ForgeLoopDiagnosticsTests"
         ),
     ],
     swiftLanguageModes: [.v6]

@@ -500,7 +500,7 @@ final class AgentLoopToolExecutionTests: XCTestCase {
 
         // 第一轮：FauxProvider 返回 toolCall
         let faux = FauxProvider(mode: .toolCall(name: "echo", arguments: "{\"msg\":\"hello\"}"))
-        let stream1 = faux.stream(model: testModel, context: Context(systemPrompt: "", messages: [.user(UserMessage(text: "run"))]), options: nil)
+        let stream1 = await faux.stream(model: testModel, context: Context(systemPrompt: "", messages: [.user(UserMessage(text: "run"))]), options: nil)
 
         // 第二轮：FauxProvider 返回文本结束
         let faux2 = FauxProvider(mode: .text)
@@ -512,7 +512,7 @@ final class AgentLoopToolExecutionTests: XCTestCase {
             if count == 1 {
                 return stream1
             }
-            return faux2.stream(model: testModel, context: context, options: nil)
+            return await faux2.stream(model: testModel, context: context, options: nil)
         }
 
         let collector = EventCollector()
@@ -573,7 +573,7 @@ final class AgentLoopToolExecutionTests: XCTestCase {
             mode: .textThenToolCall(text: "OK", toolName: "echo", toolArguments: "{\"msg\":\"hi\"}")
         )
 
-        let stream1 = faux.stream(
+        let stream1 = await faux.stream(
             model: testModel,
             context: Context(systemPrompt: "", messages: [.user(UserMessage(text: "go"))]),
             options: nil
@@ -587,7 +587,7 @@ final class AgentLoopToolExecutionTests: XCTestCase {
             if count == 1 {
                 return stream1
             }
-            return faux2.stream(model: testModel, context: context, options: nil)
+            return await faux2.stream(model: testModel, context: context, options: nil)
         }
 
         let collector = EventCollector()

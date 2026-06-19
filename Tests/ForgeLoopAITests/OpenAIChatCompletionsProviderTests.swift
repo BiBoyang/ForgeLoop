@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 @testable import ForgeLoopAI
 @testable import ForgeLoopTestSupport
+import ForgeLoopDiagnostics
 
 final class OpenAIChatCompletionsProviderTests: XCTestCase {
     private var testModel: Model {
@@ -38,7 +39,7 @@ data: [DONE]
         let client = StubChatHTTPClient(statusCode: 200, payload: payload)
         let provider = OpenAIChatCompletionsProvider(defaultAPIKey: "sk-test", httpClient: client)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: nil)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil)
         var events: [AssistantMessageEvent] = []
         for await event in stream {
             events.append(event)
@@ -80,7 +81,7 @@ data: [DONE]
         let client = StubChatHTTPClient(statusCode: 401, payload: payload)
         let provider = OpenAIChatCompletionsProvider(defaultAPIKey: "sk-test", httpClient: client)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: nil)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil)
         var events: [AssistantMessageEvent] = []
         for await event in stream {
             events.append(event)
@@ -104,7 +105,7 @@ data: [DONE]
         let client = StubChatHTTPClient(statusCode: 200, payload: payload)
         let provider = OpenAIChatCompletionsProvider(defaultAPIKey: "sk-test", httpClient: client)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: nil)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil)
         var events: [AssistantMessageEvent] = []
         for await event in stream {
             events.append(event)
@@ -153,7 +154,7 @@ data: [DONE]
         let client = StubChatHTTPClient(statusCode: 200, payload: payload)
         let provider = OpenAIChatCompletionsProvider(defaultAPIKey: "sk-test", httpClient: client)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: nil)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil)
         var events: [AssistantMessageEvent] = []
         for await event in stream {
             events.append(event)
@@ -189,7 +190,7 @@ data: [DONE]
         let client = StubChatHTTPClient(statusCode: 200, payload: payload)
         let provider = OpenAIChatCompletionsProvider(defaultAPIKey: "sk-test", httpClient: client)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: nil)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil)
         let result = await stream.result()
 
         let toolCalls = result.content.compactMap { block -> ToolCall? in
@@ -218,7 +219,7 @@ data: [DONE]
         let client = StubChatHTTPClient(statusCode: 200, payload: payload)
         let provider = OpenAIChatCompletionsProvider(defaultAPIKey: "sk-test", httpClient: client)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: nil)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil)
         let result = await stream.result()
 
         XCTAssertEqual(result.stopReason, .toolUse)
@@ -254,7 +255,7 @@ data: [DONE]
         let client = StubChatHTTPClient(statusCode: 200, payload: payload)
         let provider = OpenAIChatCompletionsProvider(defaultAPIKey: "sk-test", httpClient: client)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: nil)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil)
         let result = await stream.result()
 
         let toolCalls = result.content.compactMap { block -> ToolCall? in
@@ -283,7 +284,7 @@ data: [DONE]
         let provider = OpenAIChatCompletionsProvider(defaultAPIKey: "sk-test", httpClient: client)
         let cancellation = CancellationHandle()
 
-        let stream = provider.stream(
+        let stream = await provider.stream(
             model: testModel,
             context: testContext,
             options: StreamOptions(apiKey: nil, cancellation: cancellation)
@@ -344,7 +345,7 @@ data: [DONE]
             ]
         )
 
-        let stream = provider.stream(
+        let stream = await provider.stream(
             model: testModel,
             context: context,
             options: StreamOptions(tools: [toolDef], toolChoice: "auto")
@@ -422,7 +423,7 @@ data: [DONE]
         let client = StubChatHTTPClient(statusCode: 200, payload: payload)
         let provider = OpenAIChatCompletionsProvider(defaultAPIKey: "sk-test", httpClient: client)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: nil as StreamOptions?)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil as StreamOptions?)
         let result = await stream.result()
 
         XCTAssertEqual(result.stopReason, .toolUse)
@@ -468,7 +469,8 @@ private final class StubChatHTTPClient: HTTPClient, @unchecked Sendable {
         url: URL,
         method: String,
         headers: [String: String],
-        body: Data?
+        body: Data?,
+        traceContext: TraceContext?
     ) async throws -> (HTTPURLResponse, AsyncThrowingStream<UInt8, Error>) {
         await store.set(CapturedChatRequest(url: url, method: method, headers: headers, body: body))
 

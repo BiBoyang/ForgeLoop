@@ -180,7 +180,18 @@ FORGELOOP_TRACE_LEVEL=debug FORGELOOP_TRACE_FILE=... forgeloop
 
 ---
 
-## 9. 远期备注
+## 9. P3 Backlog（非阻塞，核心 step 完成后处理）
+
+1. **FauxProvider span 结束顺序统一**
+   - 当前 FauxProvider 在 `output.end(final)` 之后结束 span，与其他 Provider 在 `output.end` 之前结束 span 的顺序不一致。
+   - 不影响功能，P3 核心 step 完成后再统一。
+
+2. **SensitiveDataMasker actor → struct**
+   - 当前 masker 是无状态 actor，所有调用点需要 `await`。
+   - 可改为 struct + `nonisolated` 方法，减少调用点噪音。
+   - 需在 STEP-035 各层接入完成后再改，避免接口 ripple。
+
+## 10. 远期备注
 
 - **Liquid Glass 适配**：AppKit 层若未来做 trace viewer，需考虑 macOS 26 的 Liquid Glass 设计语言。不纳入 P3。
 - **OTLP / Zipkin exporter**：在 `ForgeLoopDiagnostics` 中预留 exporter 协议，未来扩展。

@@ -17,7 +17,7 @@ final class FauxProviderCancellationTests: XCTestCase {
         let handle = CancellationHandle()
         let options = StreamOptions(cancellation: handle)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: options)
+        let stream = await provider.stream(model: testModel, context: testContext, options: options)
 
         // 等待流开始产生 chunk
         try await Task.sleep(nanoseconds: 150_000_000)
@@ -53,7 +53,7 @@ final class FauxProviderCancellationTests: XCTestCase {
         let handle = CancellationHandle()
         let options = StreamOptions(cancellation: handle)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: options)
+        let stream = await provider.stream(model: testModel, context: testContext, options: options)
 
         // 等大部分 chunk 已发出，接近末尾时取消
         try await Task.sleep(nanoseconds: 200_000_000)
@@ -83,7 +83,7 @@ final class FauxProviderCancellationTests: XCTestCase {
         let provider = FauxProvider(tokenDelayNanos: 10_000_000) // 10ms/chunk
         let options = StreamOptions()
 
-        let stream = provider.stream(model: testModel, context: testContext, options: options)
+        let stream = await provider.stream(model: testModel, context: testContext, options: options)
 
         var events: [AssistantMessageEvent] = []
         for await event in stream {
@@ -114,7 +114,7 @@ final class FauxProviderCancellationTests: XCTestCase {
         let handle = CancellationHandle()
         let options = StreamOptions(cancellation: handle)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: options)
+        let stream = await provider.stream(model: testModel, context: testContext, options: options)
 
         // 等至少一个 chunk 发出
         try await Task.sleep(nanoseconds: 150_000_000)
@@ -140,7 +140,7 @@ final class FauxProviderCancellationTests: XCTestCase {
         let handle = CancellationHandle()
         let options = StreamOptions(cancellation: handle)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: options)
+        let stream = await provider.stream(model: testModel, context: testContext, options: options)
 
         // 等待流开始产生 chunk
         try await Task.sleep(nanoseconds: 150_000_000)

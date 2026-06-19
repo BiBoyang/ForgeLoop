@@ -117,7 +117,7 @@ data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello world!"}
         model: Model,
         expectedText: String
     ) async throws {
-        let stream = provider.stream(model: model, context: context, options: nil)
+        let stream = await provider.stream(model: model, context: context, options: nil)
 
         var events: [AssistantMessageEvent] = []
         for await event in stream {

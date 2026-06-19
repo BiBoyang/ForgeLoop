@@ -18,7 +18,7 @@ final class AgentAbortIntegrationTests: XCTestCase {
     func testAgentAbortWithFauxProviderProducesAbortedAssistant() async throws {
         let streamFn: StreamFn = { model, context, options in
             let provider = FauxProvider(tokenDelayNanos: 100_000_000)
-            return provider.stream(model: model, context: context, options: options)
+            return await provider.stream(model: model, context: context, options: options)
         }
 
         let agent = Agent(initialState: AgentInitialState(model: testModel), streamFn: streamFn)

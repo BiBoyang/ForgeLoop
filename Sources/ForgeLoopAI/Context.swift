@@ -1,4 +1,5 @@
 import Foundation
+import ForgeLoopDiagnostics
 
 public struct Model: Sendable, Hashable, Codable {
     public var id: String
@@ -66,16 +67,22 @@ public struct StreamOptions: Sendable {
     public var cancellation: CancellationHandle?
     public var tools: [ToolDefinition]?
     public var toolChoice: String?
+    public var traceContext: TraceContext?
+    public var diagnostics: Diagnostics?
 
     public init(
         apiKey: String? = nil,
         cancellation: CancellationHandle? = nil,
         tools: [ToolDefinition]? = nil,
-        toolChoice: String? = nil
+        toolChoice: String? = nil,
+        traceContext: TraceContext? = nil,
+        diagnostics: Diagnostics? = nil
     ) {
         self.apiKey = apiKey
         self.cancellation = cancellation
         self.tools = tools
         self.toolChoice = toolChoice
+        self.traceContext = traceContext
+        self.diagnostics = diagnostics
     }
 }

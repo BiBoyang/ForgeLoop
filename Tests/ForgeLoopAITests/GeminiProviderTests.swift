@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 @testable import ForgeLoopAI
 @testable import ForgeLoopTestSupport
+import ForgeLoopDiagnostics
 
 final class GeminiProviderTests: XCTestCase {
     private var testModel: Model {
@@ -35,7 +36,7 @@ data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello world!"}
         let client = StubGeminiHTTPClient(statusCode: 200, payload: payload)
         let provider = GeminiProvider(defaultAPIKey: "gemini-test", httpClient: client)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: nil)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil)
         var events: [AssistantMessageEvent] = []
         for await event in stream {
             events.append(event)
@@ -81,7 +82,7 @@ data: {"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name"
         let client = StubGeminiHTTPClient(statusCode: 200, payload: payload)
         let provider = GeminiProvider(defaultAPIKey: "gemini-test", httpClient: client)
 
-        let stream = provider.stream(model: testModel, context: testContext, options: nil)
+        let stream = await provider.stream(model: testModel, context: testContext, options: nil)
         let result = await stream.result()
 
         XCTAssertEqual(result.stopReason, .toolUse)
@@ -112,7 +113,7 @@ data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello world"}]
         let provider = GeminiProvider(defaultAPIKey: "gemini-test", httpClient: client)
         let cancellation = CancellationHandle()
 
-        let stream = provider.stream(
+        let stream = await provider.stream(
             model: testModel,
             context: testContext,
             options: StreamOptions(cancellation: cancellation)
@@ -169,7 +170,7 @@ data: {"candidates":[{"content":{"role":"model","parts":[{"text":"done"}]},"fini
             ]
         )
 
-        let stream = provider.stream(
+        let stream = await provider.stream(
             model: testModel,
             context: context,
             options: StreamOptions(tools: [toolDef], toolChoice: "auto")
@@ -277,7 +278,8 @@ private final class StubGeminiHTTPClient: HTTPClient, @unchecked Sendable {
         url: URL,
         method: String,
         headers: [String: String],
-        body: Data?
+        body: Data?,
+        traceContext: TraceContext?
     ) async throws -> (HTTPURLResponse, AsyncThrowingStream<UInt8, Error>) {
         await store.set(CapturedGeminiRequest(url: url, method: method, headers: headers, body: body))
 

@@ -1,5 +1,6 @@
 import Foundation
 @testable import ForgeLoopAI
+import ForgeLoopDiagnostics
 
 /// Generic HTTP client stub for provider contract tests.
 /// Returns a fixed SSE payload regardless of request URL/method.
@@ -23,7 +24,8 @@ public final class StubHTTPClient: HTTPClient, @unchecked Sendable {
         url: URL,
         method: String,
         headers: [String: String],
-        body: Data?
+        body: Data?,
+        traceContext: TraceContext?
     ) async throws -> (HTTPURLResponse, AsyncThrowingStream<UInt8, Error>) {
         let response = self.response
         let bytes = self.bytes

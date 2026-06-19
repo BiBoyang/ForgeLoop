@@ -1,4 +1,5 @@
 import Foundation
+import ForgeLoopDiagnostics
 
 public final class GeminiProvider: APIProvider, @unchecked Sendable {
     public let api: String = "gemini"
@@ -17,14 +18,27 @@ public final class GeminiProvider: APIProvider, @unchecked Sendable {
         self.httpClient = httpClient
     }
 
-    public func stream(model: Model, context: Context, options: StreamOptions?) -> AssistantMessageStream {
+    public func stream(model: Model, context: Context, options: StreamOptions?) async -> AssistantMessageStream {
         let out = AssistantMessageStream()
         let worker = Task { [self] in
+            let diagnostics = options?.diagnostics ?? Diagnostics()
+            let span = await diagnostics.trace.startSpan(
+                name: "provider.stream",
+                parent: options?.traceContext,
+                layer: "AI",
+                operation: "stream",
+                attributes: [
+                    "provider": .string(api),
+                    "model": .string(model.id)
+                ]
+            )
             await runStream(
                 model: model,
                 context: context,
                 options: options,
-                output: out
+                output: out,
+                diagnostics: diagnostics,
+                span: span
             )
         }
         options?.cancellation?.onCancel { _ in
@@ -33,19 +47,47 @@ public final class GeminiProvider: APIProvider, @unchecked Sendable {
         return out
     }
 
+    // swiftlint:disable:next function_parameter_count
     private func runStream(
         model: Model,
         context: Context,
         options: StreamOptions?,
-        output: AssistantMessageStream
+        output: AssistantMessageStream,
+        diagnostics: Diagnostics,
+        span: TraceContext
     ) async {
         var ended = false
         var partialText = ""
         var pendingToolCalls: [String: GeminiPendingToolCall] = [:]
         var callOrder: [String] = []
         var finalStopReason: String?
+        var lastMessageUpdateLog: ContinuousClock.Instant?
 
-        func endWithDone(toolUse: Bool = false) {
+        func finishSpan(_ error: TraceError?) async {
+            await diagnostics.trace.endSpan(span, attributes: [:], error: error)
+        }
+
+        func logTextDelta() async {
+            let now = ContinuousClock().now
+            if let last = lastMessageUpdateLog, now.advanced(by: .seconds(-1)) < last {
+                return
+            }
+            await diagnostics.log.log(
+                level: .debug,
+                message: "message.text.delta",
+                attributes: ["provider": .string(api)]
+            )
+            lastMessageUpdateLog = now
+        }
+
+        /// Mutable box for propagating the first span error out of nested helper functions.
+        /// `@unchecked Sendable` because it is only accessed serially within a single `runStream` task.
+        final class SpanErrorBox: @unchecked Sendable {
+            var error: TraceError?
+        }
+        let spanError = SpanErrorBox()
+
+        func endWithDone(toolUse: Bool = false) async {
             guard !ended else { return }
             ended = true
             let reason: StopReason = toolUse || !pendingToolCalls.isEmpty ? .toolUse : .endTurn
@@ -54,11 +96,15 @@ public final class GeminiProvider: APIProvider, @unchecked Sendable {
                 output.push(.textEnd(contentIndex: 0, content: partialText, partial: final))
             }
             output.push(.done(reason: reason, message: final))
+            await finishSpan(spanError.error)
             output.end(final)
         }
 
-        func endWithError(reason: StopReason, message: String) {
+        func endWithError(reason: StopReason, message: String) async {
             guard !ended else { return }
+            if spanError.error == nil {
+                spanError.error = TraceError(type: "ProviderError", message: message)
+            }
             ended = true
             let final = buildFinalMessage(stopReason: reason)
             let finalWithError = AssistantMessage(
@@ -67,13 +113,15 @@ public final class GeminiProvider: APIProvider, @unchecked Sendable {
                 errorMessage: message
             )
             output.push(.error(reason: reason, error: finalWithError))
+            await finishSpan(spanError.error)
             output.end(finalWithError)
         }
 
-        func endAbortedIfNeeded() -> Bool {
+        func endAbortedIfNeeded() async -> Bool {
             let cancelled = options?.cancellation?.isCancelled == true || Task.isCancelled
             guard cancelled else { return false }
-            endWithError(reason: .aborted, message: "Request was aborted")
+            spanError.error = TraceError(type: "Cancellation", message: "Request was aborted")
+            await endWithError(reason: .aborted, message: "Request was aborted")
             return true
         }
 
@@ -102,24 +150,28 @@ public final class GeminiProvider: APIProvider, @unchecked Sendable {
         output.push(.start(partial: partial))
         output.push(.textStart(contentIndex: 0, partial: partial))
 
-        if endAbortedIfNeeded() {
+        if await endAbortedIfNeeded() {
             return
         }
 
         let apiKey = options?.apiKey ?? defaultAPIKey
         guard let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            endWithError(reason: .error, message: "Missing Gemini API key")
+            spanError.error = TraceError(type: "ProviderError", message: "Missing Gemini API key")
+            await endWithError(reason: .error, message: "Missing Gemini API key")
             return
         }
 
         let requestBaseURL = model.baseUrl.isEmpty ? defaultBaseURL : model.baseUrl
         guard let url = Self.streamURL(baseURL: requestBaseURL, model: model.id) else {
-            endWithError(reason: .error, message: "Invalid base URL: \(requestBaseURL)")
+            let message = "Invalid base URL: \(requestBaseURL)"
+            spanError.error = TraceError(type: "ProviderError", message: message)
+            await endWithError(reason: .error, message: message)
             return
         }
 
         guard let body = Self.buildRequestBody(model: model.id, context: context, options: options) else {
-            endWithError(reason: .error, message: "Failed to encode request body")
+            spanError.error = TraceError(type: "ProviderError", message: "Failed to encode request body")
+            await endWithError(reason: .error, message: "Failed to encode request body")
             return
         }
 
@@ -132,17 +184,18 @@ public final class GeminiProvider: APIProvider, @unchecked Sendable {
                     "accept": "text/event-stream",
                     "x-goog-api-key": apiKey
                 ],
-                body: body
+                body: body,
+                traceContext: span
             )
 
-            if endAbortedIfNeeded() {
+            if await endAbortedIfNeeded() {
                 return
             }
 
             guard (200...299).contains(response.statusCode) else {
                 var bytes: [UInt8] = []
                 for try await byte in byteStream {
-                    if endAbortedIfNeeded() {
+                    if await endAbortedIfNeeded() {
                         return
                     }
                     bytes.append(byte)
@@ -151,11 +204,11 @@ public final class GeminiProvider: APIProvider, @unchecked Sendable {
                     }
                 }
                 let bodyText = String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-                if bodyText.isEmpty {
-                    endWithError(reason: .error, message: "Gemini HTTP \(response.statusCode)")
-                } else {
-                    endWithError(reason: .error, message: "Gemini HTTP \(response.statusCode): \(bodyText)")
-                }
+                let errorMessage = bodyText.isEmpty
+                    ? "Gemini HTTP \(response.statusCode)"
+                    : "Gemini HTTP \(response.statusCode): \(bodyText)"
+                spanError.error = TraceError(type: "HTTPError", message: errorMessage)
+                await endWithError(reason: .error, message: errorMessage)
                 return
             }
 
@@ -164,7 +217,7 @@ public final class GeminiProvider: APIProvider, @unchecked Sendable {
             var sawStructuredChunk = false
 
             for try await byte in byteStream {
-                if endAbortedIfNeeded() {
+                if await endAbortedIfNeeded() {
                     return
                 }
                 lineBuffer.append(byte)
@@ -175,16 +228,22 @@ public final class GeminiProvider: APIProvider, @unchecked Sendable {
                     lineBuffer.removeAll(keepingCapacity: true)
 
                     for message in parser.drain() {
-                        if endAbortedIfNeeded() {
+                        if await endAbortedIfNeeded() {
                             return
                         }
 
                         if let errorMessage = Self.resolveErrorMessage(message: message) {
                             sawStructuredChunk = true
-                            endWithError(reason: .error, message: errorMessage)
+                            spanError.error = TraceError(type: "ProviderError", message: errorMessage)
+                            await endWithError(reason: .error, message: errorMessage)
                             return
                         }
 
+                        await diagnostics.log.log(
+                            level: .debug,
+                            message: "sse.parse.event",
+                            attributes: ["event_type": .string("candidate")]
+                        )
                         let candidate = Self.resolveCandidate(message: message)
                         if let candidate = candidate {
                             sawStructuredChunk = true
@@ -204,6 +263,7 @@ public final class GeminiProvider: APIProvider, @unchecked Sendable {
                                             stopReason: .endTurn
                                         )
                                         output.push(.textDelta(contentIndex: 0, delta: delta, partial: partial))
+                                        await logTextDelta()
                                     }
                                 case .functionCall(let callId, let name, let args):
                                     if var pending = pendingToolCalls[callId] {
@@ -224,7 +284,7 @@ public final class GeminiProvider: APIProvider, @unchecked Sendable {
                             let shouldEnd = candidate.finishReason == "STOP" || candidate.finishReason == "TOOL_CALLS"
                             if shouldEnd {
                                 let toolUse = candidate.finishReason == "TOOL_CALLS" || !pendingToolCalls.isEmpty
-                                endWithDone(toolUse: toolUse)
+                                await endWithDone(toolUse: toolUse)
                                 return
                             }
                         }
@@ -237,16 +297,22 @@ public final class GeminiProvider: APIProvider, @unchecked Sendable {
             }
 
             for message in parser.finish() {
-                if endAbortedIfNeeded() {
+                if await endAbortedIfNeeded() {
                     return
                 }
 
                 if let errorMessage = Self.resolveErrorMessage(message: message) {
                     sawStructuredChunk = true
-                    endWithError(reason: .error, message: errorMessage)
+                    spanError.error = TraceError(type: "ProviderError", message: errorMessage)
+                    await endWithError(reason: .error, message: errorMessage)
                     return
                 }
 
+                await diagnostics.log.log(
+                    level: .debug,
+                    message: "sse.parse.event",
+                    attributes: ["event_type": .string("candidate")]
+                )
                 if let candidate = Self.resolveCandidate(message: message) {
                     sawStructuredChunk = true
 
@@ -265,6 +331,7 @@ public final class GeminiProvider: APIProvider, @unchecked Sendable {
                                     stopReason: .endTurn
                                 )
                                 output.push(.textDelta(contentIndex: 0, delta: delta, partial: partial))
+                                await logTextDelta()
                             }
                         case .functionCall(let callId, let name, let args):
                             if var pending = pendingToolCalls[callId] {
@@ -285,31 +352,36 @@ public final class GeminiProvider: APIProvider, @unchecked Sendable {
                     let shouldEnd = candidate.finishReason == "STOP" || candidate.finishReason == "TOOL_CALLS"
                     if shouldEnd {
                         let toolUse = candidate.finishReason == "TOOL_CALLS" || !pendingToolCalls.isEmpty
-                        endWithDone(toolUse: toolUse)
+                        await endWithDone(toolUse: toolUse)
                         return
                     }
                 }
             }
 
-            if endAbortedIfNeeded() {
+            if await endAbortedIfNeeded() {
                 return
             }
 
             if !sawStructuredChunk {
-                endWithError(reason: .error, message: "Gemini returned an empty or unparseable stream")
+                let errorMessage = "Gemini returned an empty or unparseable stream"
+                spanError.error = TraceError(type: "ProviderError", message: errorMessage)
+                await endWithError(reason: .error, message: errorMessage)
                 return
             }
 
             let toolUse = finalStopReason == "TOOL_CALLS" || !pendingToolCalls.isEmpty
-            endWithDone(toolUse: toolUse)
+            await endWithDone(toolUse: toolUse)
         } catch let caughtError {
             if caughtError is CancellationError || options?.cancellation?.isCancelled == true || Task.isCancelled {
+                spanError.error = TraceError(type: "Cancellation", message: "Request was aborted")
                 if !ended {
-                    endWithError(reason: .aborted, message: "Request was aborted")
+                    await endWithError(reason: .aborted, message: "Request was aborted")
                 }
                 return
             }
-            endWithError(reason: .error, message: "Gemini stream failed: \(caughtError)")
+            let errorMessage = "Gemini stream failed: \(caughtError)"
+            spanError.error = TraceError(type: "StreamError", message: errorMessage)
+            await endWithError(reason: .error, message: errorMessage)
         }
     }
 

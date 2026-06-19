@@ -18,46 +18,42 @@ extension Agent {
             let state = RunOnceStreamState()
 
             let task = Task {
-                do {
-                    let toolExecutor = ToolExecutor()
-                    for tool in tools {
-                        toolExecutor.register(tool)
-                    }
+                let toolExecutor = ToolExecutor()
+                for tool in tools {
+                    toolExecutor.register(tool)
+                }
 
-                    let agent = Agent(
-                        initialState: AgentInitialState(model: model),
-                        streamFn: streamFn,
-                        toolExecutor: toolExecutor,
-                        cwd: cwd
-                    )
+                let agent = Agent(
+                    initialState: AgentInitialState(model: model),
+                    streamFn: streamFn,
+                    toolExecutor: toolExecutor,
+                    cwd: cwd
+                )
 
-                    let unsubscribe = agent.subscribe { event, _ in
-                        continuation.yield(event)
-                        if case .agentEnd = event {
-                            Task {
-                                await state.finish { continuation.finish() }
-                            }
-                        }
-                    }
-
-                    defer { unsubscribe() }
-
-                    do {
-                        try await withTaskCancellationHandler {
-                            try await agent.prompt(prompt)
-                        } onCancel: {
-                            agent.abort()
-                        }
-                        await state.finish { continuation.finish() }
-                    } catch {
-                        if Task.isCancelled {
+                let unsubscribe = agent.subscribe { event, _ in
+                    continuation.yield(event)
+                    if case .agentEnd = event {
+                        Task {
                             await state.finish { continuation.finish() }
-                        } else {
-                            await state.finish { continuation.finish(throwing: error) }
                         }
                     }
+                }
+
+                defer { unsubscribe() }
+
+                do {
+                    try await withTaskCancellationHandler {
+                        try await agent.prompt(prompt)
+                    } onCancel: {
+                        agent.abort()
+                    }
+                    await state.finish { continuation.finish() }
                 } catch {
-                    await state.finish { continuation.finish(throwing: error) }
+                    if Task.isCancelled {
+                        await state.finish { continuation.finish() }
+                    } else {
+                        await state.finish { continuation.finish(throwing: error) }
+                    }
                 }
             }
 
