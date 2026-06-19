@@ -1,5 +1,6 @@
 import Foundation
 import ForgeLoopAI
+import ForgeLoopDiagnostics
 
 public struct AgentOptions: Sendable {
     public var initialState: AgentInitialState
@@ -85,6 +86,16 @@ public final class Agent: @unchecked Sendable {
     /// `toolExecutor` is set at init time and never reassigned, avoiding races on the executor.
     public let toolExecutor: ToolExecutor?
 
+    /// Diagnostics backend for this agent session.
+    ///
+    /// Safety invariant: `Diagnostics` is a `Sendable` value type, so storing and
+    /// sharing it across concurrency boundaries is safe despite `@unchecked Sendable`.
+    private let diagnostics: Diagnostics
+
+    /// Optional parent span for this agent's `agent.run` span.
+    /// Used when a subagent is spawned from a tool execution context.
+    private let parentTraceContext: TraceContext?
+
     public var apiKeyResolver: (@Sendable (String) async -> String?)? {
         get { config.apiKeyResolver }
         set { config.apiKeyResolver = newValue }
@@ -119,13 +130,17 @@ public final class Agent: @unchecked Sendable {
         initialState: AgentInitialState,
         streamFn: StreamFn? = nil,
         toolExecutor: ToolExecutor? = nil,
-        cwd: String = ""
+        cwd: String = "",
+        diagnostics: Diagnostics = Diagnostics(),
+        parentTraceContext: TraceContext? = nil
     ) {
         self.init(
             options: AgentOptions(initialState: initialState),
             streamFn: streamFn,
             toolExecutor: toolExecutor,
-            cwd: cwd
+            cwd: cwd,
+            diagnostics: diagnostics,
+            parentTraceContext: parentTraceContext
         )
     }
 
@@ -133,7 +148,9 @@ public final class Agent: @unchecked Sendable {
         options: AgentOptions,
         streamFn: StreamFn? = nil,
         toolExecutor: ToolExecutor? = nil,
-        cwd: String = ""
+        cwd: String = "",
+        diagnostics: Diagnostics = Diagnostics(),
+        parentTraceContext: TraceContext? = nil
     ) {
         self.state = AgentState(
             systemPrompt: options.initialState.systemPrompt,
@@ -144,6 +161,8 @@ public final class Agent: @unchecked Sendable {
             try await ForgeLoopAI.stream(model: model, context: context, options: options)
         }
         self.toolExecutor = toolExecutor
+        self.diagnostics = diagnostics
+        self.parentTraceContext = parentTraceContext
         self.config = LockedAgentConfig(
             apiKeyResolver: nil,
             cwd: cwd,
@@ -166,6 +185,11 @@ public final class Agent: @unchecked Sendable {
     }
 
     public func prompt(_ text: String) async throws {
+        await diagnostics.log.log(
+            level: .info,
+            message: "agent.prompt",
+            attributes: ["text_length": .int(text.count)]
+        )
         try await runLifecycle(
             makePrompts: { [self] cancellation in
                 if let hook = userPromptSubmit {
@@ -176,11 +200,11 @@ public final class Agent: @unchecked Sendable {
                 }
                 return [Message.user(UserMessage(text: text))]
             },
-            executor: { [self] cancellation, emit, prompts in
+            executor: { [self] cancellation, emit, prompts, runSpan in
                 try await AgentLoop.run(
                     prompts: prompts,
                     context: snapshotContext(),
-                    config: makeLoopConfig(cancellation: cancellation),
+                    config: makeLoopConfig(cancellation: cancellation, traceContext: runSpan),
                     emit: emit,
                     cancellation: cancellation,
                     streamFn: streamFn
@@ -190,6 +214,13 @@ public final class Agent: @unchecked Sendable {
     }
 
     public func steer(_ message: Message) {
+        Task {
+            await diagnostics.log.log(
+                level: .info,
+                message: "agent.steer",
+                attributes: ["message_role": .string(message.role)]
+            )
+        }
         steeringQueue.enqueue(message)
     }
 
@@ -202,6 +233,11 @@ public final class Agent: @unchecked Sendable {
     }
 
     public func `continue`() async throws {
+        await diagnostics.log.log(
+            level: .info,
+            message: "agent.continue",
+            attributes: ["queued_messages": .int(steeringQueue.snapshot().count)]
+        )
         let queued = steeringQueue.drain()
         if !queued.isEmpty {
             do {
@@ -220,11 +256,11 @@ public final class Agent: @unchecked Sendable {
                         }
                         return effective.isEmpty ? nil : effective
                     },
-                    executor: { [self] cancellation, emit, prompts in
+                    executor: { [self] cancellation, emit, prompts, runSpan in
                         try await AgentLoop.run(
                             prompts: prompts,
                             context: snapshotContext(),
-                            config: makeLoopConfig(cancellation: cancellation),
+                            config: makeLoopConfig(cancellation: cancellation, traceContext: runSpan),
                             emit: emit,
                             cancellation: cancellation,
                             streamFn: streamFn
@@ -251,11 +287,11 @@ public final class Agent: @unchecked Sendable {
 
         try await runLifecycle(
             makePrompts: { _ in [] },
-            executor: { [self] cancellation, emit, prompts in
+            executor: { [self] cancellation, emit, prompts, runSpan in
                 try await AgentLoop.run(
                     prompts: prompts,
                     context: snapshotContext(),
-                    config: makeLoopConfig(cancellation: cancellation),
+                    config: makeLoopConfig(cancellation: cancellation, traceContext: runSpan),
                     emit: emit,
                     cancellation: cancellation,
                     streamFn: streamFn
@@ -264,7 +300,10 @@ public final class Agent: @unchecked Sendable {
         )
     }
 
-    private func makeLoopConfig(cancellation: CancellationHandle?) -> AgentLoopConfig {
+    private func makeLoopConfig(
+        cancellation: CancellationHandle?,
+        traceContext: TraceContext?
+    ) -> AgentLoopConfig {
         let snapshot = config.loopSnapshot()
         return AgentLoopConfig(
             model: state.model,
@@ -274,11 +313,20 @@ public final class Agent: @unchecked Sendable {
             toolExecutionMode: snapshot.toolExecutionMode,
             beforeToolCall: beforeToolCall,
             afterToolCall: afterToolCall,
-            betweenTurns: betweenTurns
+            betweenTurns: betweenTurns,
+            traceContext: traceContext,
+            diagnostics: diagnostics
         )
     }
 
     public func abort() {
+        Task {
+            await diagnostics.log.log(
+                level: .info,
+                message: "agent.abort",
+                attributes: [:]
+            )
+        }
         let handle = lock.withLock { activeCancellation }
         handle?.cancel(reason: "aborted")
     }
@@ -353,8 +401,30 @@ public final class Agent: @unchecked Sendable {
 
     private func runLifecycle(
         makePrompts: @escaping @Sendable (_ cancellation: CancellationHandle) async throws -> [Message]?,
-        executor: @escaping @Sendable (_ cancellation: CancellationHandle, _ emit: @escaping AgentEventSink, _ prompts: [Message]) async throws -> Void
+        executor: @escaping @Sendable (
+            _ cancellation: CancellationHandle,
+            _ emit: @escaping AgentEventSink,
+            _ prompts: [Message],
+            _ runSpan: TraceContext
+        ) async throws -> Void
     ) async throws {
+        let runSpan = await diagnostics.trace.startSpan(
+            name: "agent.run",
+            parent: parentTraceContext,
+            layer: "Agent",
+            operation: "run",
+            attributes: [
+                "model_id": .string(state.model.id)
+            ]
+        )
+        var runError: TraceError?
+        defer {
+            let capturedError = runError
+            Task {
+                await diagnostics.trace.endSpan(runSpan, attributes: [:], error: capturedError)
+            }
+        }
+
         try lock.withLock {
             if activeCancellation != nil { throw AgentError.alreadyRunning }
             activeCancellation = CancellationHandle()
@@ -384,8 +454,9 @@ public final class Agent: @unchecked Sendable {
         }
 
         do {
-            try await executor(cancellation, emit, prompts)
+            try await executor(cancellation, emit, prompts, runSpan)
         } catch {
+            runError = TraceError(type: String(describing: type(of: error)), message: "\(error)")
             let failure = AssistantMessage(
                 content: [.text(TextContent(text: ""))],
                 stopReason: cancellation.isCancelled ? .aborted : .error,
@@ -428,6 +499,12 @@ public final class Agent: @unchecked Sendable {
     }
 
     private func processEvent(_ event: AgentEvent, cancellation: CancellationHandle) async {
+        await diagnostics.log.log(
+            level: .debug,
+            message: "agent.event",
+            attributes: ["event_type": .string(event.type)]
+        )
+
         switch event {
         case .messageStart(let message):
             state.setStreamingMessage(message)

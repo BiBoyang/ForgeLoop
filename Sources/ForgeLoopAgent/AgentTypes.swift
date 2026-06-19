@@ -1,5 +1,6 @@
 import Foundation
 import ForgeLoopAI
+import ForgeLoopDiagnostics
 
 public typealias AgentListener = @Sendable (AgentEvent, CancellationHandle?) async -> Void
 public typealias Unsubscribe = @Sendable () -> Void
@@ -77,6 +78,8 @@ public struct AgentLoopConfig: Sendable {
     public var beforeToolCall: BeforeToolCallHook?
     public var afterToolCall: AfterToolCallHook?
     public var betweenTurns: BetweenTurnsHook?
+    public var traceContext: TraceContext?
+    public var diagnostics: Diagnostics?
 
     public init(
         model: Model,
@@ -86,7 +89,9 @@ public struct AgentLoopConfig: Sendable {
         toolExecutionMode: ToolExecutionMode = .sequential,
         beforeToolCall: BeforeToolCallHook? = nil,
         afterToolCall: AfterToolCallHook? = nil,
-        betweenTurns: BetweenTurnsHook? = nil
+        betweenTurns: BetweenTurnsHook? = nil,
+        traceContext: TraceContext? = nil,
+        diagnostics: Diagnostics? = nil
     ) {
         self.model = model
         self.apiKeyResolver = apiKeyResolver
@@ -96,5 +101,7 @@ public struct AgentLoopConfig: Sendable {
         self.beforeToolCall = beforeToolCall
         self.afterToolCall = afterToolCall
         self.betweenTurns = betweenTurns
+        self.traceContext = traceContext
+        self.diagnostics = diagnostics
     }
 }

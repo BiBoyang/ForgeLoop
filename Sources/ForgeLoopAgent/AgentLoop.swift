@@ -1,5 +1,6 @@
 import Foundation
 import ForgeLoopAI
+import ForgeLoopDiagnostics
 
 public enum AgentLoop {
     public static func run(
@@ -19,6 +20,29 @@ public enum AgentLoop {
             return Array(currentContext.messages[baseCount...])
         }
 
+        let diagnostics = config.diagnostics ?? Diagnostics()
+        let turnSpan = await diagnostics.trace.startSpan(
+            name: "agent.turn",
+            parent: config.traceContext,
+            layer: "Agent",
+            operation: "run",
+            attributes: [
+                "model_id": .string(config.model.id)
+            ]
+        )
+        var turnError: TraceError?
+        defer {
+            let capturedError = turnError
+            Task {
+                await diagnostics.trace.endSpan(turnSpan, attributes: [:], error: capturedError)
+            }
+        }
+
+        // All child spans created during this turn (provider stream, tool executions)
+        // should be parented under the turn span.
+        var config = config
+        config.traceContext = turnSpan
+
         await emit(.agentStart)
         await emit(.turnStart)
         for prompt in prompts {
@@ -29,20 +53,26 @@ public enum AgentLoop {
         let maxToolTurns = 8
         var toolTurnCount = 0
 
-        while true {
-            let resolved = await config.apiKeyResolver?(config.model.provider)
-            let llmContext = Context(
-                systemPrompt: currentContext.systemPrompt,
-                messages: currentContext.messages
-            )
-            let options = StreamOptions(apiKey: resolved, cancellation: cancellation)
-            let response = try await streamFn(config.model, llmContext, options)
+        do {
+            while true {
+                let resolved = await config.apiKeyResolver?(config.model.provider)
+                let llmContext = Context(
+                    systemPrompt: currentContext.systemPrompt,
+                    messages: currentContext.messages
+                )
+                let options = StreamOptions(
+                    apiKey: resolved,
+                    cancellation: cancellation,
+                    traceContext: config.traceContext,
+                    diagnostics: diagnostics
+                )
+                let response = try await streamFn(config.model, llmContext, options)
 
-            var emittedStart = false
-            var streamCompleted = false
-            var finalAssistant: AssistantMessage?
+                var emittedStart = false
+                var streamCompleted = false
+                var finalAssistant: AssistantMessage?
 
-            streamLoop: for await event in response {
+                streamLoop: for await event in response {
                 switch event {
                 case .start(let partial):
                     emittedStart = true
@@ -61,29 +91,29 @@ public enum AgentLoop {
                     streamCompleted = true
                     break streamLoop
                 }
-            }
+                }
 
-            if !streamCompleted {
+                if !streamCompleted {
                 finalAssistant = await response.result()
-            }
+                }
 
-            guard let final = finalAssistant else {
+                guard let final = finalAssistant else {
                 await emit(.agentEnd(messages: delta()))
                 return
-            }
+                }
 
-            currentContext.messages.append(.assistant(final))
-            if !emittedStart {
+                currentContext.messages.append(.assistant(final))
+                if !emittedStart {
                 await emit(.messageStart(message: .assistant(final)))
-            }
-            await emit(.messageEnd(message: .assistant(final)))
+                }
+                await emit(.messageEnd(message: .assistant(final)))
 
-            let toolCalls = final.content.compactMap { block -> ToolCall? in
+                let toolCalls = final.content.compactMap { block -> ToolCall? in
                 if case .toolCall(let tc) = block { return tc }
                 return nil
-            }
+                }
 
-            if !toolCalls.isEmpty {
+                if !toolCalls.isEmpty {
                 if toolTurnCount >= maxToolTurns {
                     let errorMessage = AssistantMessage(
                         content: [.text(TextContent(text: "Maximum tool turn limit (\(maxToolTurns)) reached."))],
@@ -142,18 +172,22 @@ public enum AgentLoop {
 
                 await emit(.turnStart)
                 continue
-            }
+                }
 
-            await emit(.turnEnd(message: .assistant(final)))
-            await applyBetweenTurns(
+                await emit(.turnEnd(message: .assistant(final)))
+                await applyBetweenTurns(
                 messages: currentContext.messages,
                 config: config,
                 cancellation: cancellation,
                 context: &currentContext,
                 emit: emit
-            )
-            await emit(.agentEnd(messages: delta()))
-            return
+                )
+                await emit(.agentEnd(messages: delta()))
+                return
+        }
+        } catch {
+            turnError = TraceError(type: String(describing: type(of: error)), message: "\(error)")
+            throw error
         }
     }
 
@@ -186,7 +220,8 @@ public enum AgentLoop {
                 name: toolCall.name,
                 arguments: before.arguments,
                 cwd: config.cwd,
-                cancellation: cancellation
+                cancellation: cancellation,
+                traceContext: config.traceContext
             )
         } else {
             rawResult = ToolResult.error(.notImplemented, message: "No tool executor configured")
@@ -275,7 +310,8 @@ public enum AgentLoop {
                         name: plan.toolCall.name,
                         arguments: plan.arguments,
                         cwd: config.cwd,
-                        cancellation: cancellation
+                        cancellation: cancellation,
+                        traceContext: config.traceContext
                     )
                     return ToolOutput(
                         toolCallId: plan.toolCall.id,

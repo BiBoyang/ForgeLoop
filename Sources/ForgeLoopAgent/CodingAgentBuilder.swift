@@ -1,5 +1,6 @@
 import Foundation
 import ForgeLoopAI
+import ForgeLoopDiagnostics
 
 public struct CodingAgentConfig: Sendable {
     public var model: Model
@@ -26,9 +27,12 @@ public struct CodingAgentConfig: Sendable {
     }
 }
 
-public func makeCodingAgent(_ config: CodingAgentConfig) async -> Agent {
+public func makeCodingAgent(
+    _ config: CodingAgentConfig,
+    diagnostics: Diagnostics = Diagnostics()
+) async -> Agent {
     let systemPrompt = config.systemPrompt ?? buildSystemPrompt(cwd: config.cwd)
-    let toolExecutor = ToolExecutor()
+    let toolExecutor = ToolExecutor(diagnostics: diagnostics)
     toolExecutor.register(ReadTool())
     toolExecutor.register(WriteTool())
     toolExecutor.register(EditTool())
@@ -48,7 +52,8 @@ public func makeCodingAgent(_ config: CodingAgentConfig) async -> Agent {
         ),
         streamFn: config.streamFn,
         toolExecutor: toolExecutor,
-        cwd: config.cwd
+        cwd: config.cwd,
+        diagnostics: diagnostics
     )
     agent.toolExecutionMode = config.toolExecutionMode
     agent.backgroundTaskManager = bgManager
@@ -58,7 +63,8 @@ public func makeCodingAgent(_ config: CodingAgentConfig) async -> Agent {
         let agentTool = createAgentTool(
             subagents: config.subagents,
             config: config,
-            parentSessionId: ""
+            parentSessionId: "",
+            diagnostics: diagnostics
         )
         toolExecutor.register(agentTool)
     }

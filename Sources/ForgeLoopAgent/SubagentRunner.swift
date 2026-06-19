@@ -1,5 +1,6 @@
 import Foundation
 import ForgeLoopAI
+import ForgeLoopDiagnostics
 
 /// Error raised when a subagent run is cancelled before it completes naturally.
 public struct SubagentCancellationError: Error, Sendable {}
@@ -24,13 +25,15 @@ public func runSubagent(
     taskPrompt: String,
     parentConfig: CodingAgentConfig,
     parentSessionId: String,
+    parentTraceContext: TraceContext? = nil,
+    diagnostics: Diagnostics = Diagnostics(),
     cancellation: CancellationHandle? = nil
 ) async throws -> SubagentResult {
     var childConfig = parentConfig
     childConfig.systemPrompt = definition.prompt
     childConfig.subagents = []
 
-    let toolExecutor = ToolExecutor()
+    let toolExecutor = ToolExecutor(diagnostics: diagnostics)
     registerAllowedTools(into: toolExecutor, for: definition.tools)
 
     let childAgent = Agent(
@@ -40,7 +43,9 @@ public func runSubagent(
         ),
         streamFn: childConfig.streamFn,
         toolExecutor: toolExecutor,
-        cwd: childConfig.cwd
+        cwd: childConfig.cwd,
+        diagnostics: diagnostics,
+        parentTraceContext: parentTraceContext
     )
     childAgent.toolExecutionMode = childConfig.toolExecutionMode
 

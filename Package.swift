@@ -29,7 +29,7 @@ let package = Package(
         ),
         .target(
             name: "ForgeLoopAgent",
-            dependencies: ["ForgeLoopAI"],
+            dependencies: ["ForgeLoopAI", "ForgeLoopDiagnostics"],
             path: "Sources/ForgeLoopAgent"
         ),
         .target(
@@ -63,7 +63,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ForgeLoopAgentTests",
-            dependencies: ["ForgeLoopAgent", "ForgeLoopAI", "ForgeLoopTestSupport"],
+            dependencies: ["ForgeLoopAgent", "ForgeLoopAI", "ForgeLoopTestSupport", "ForgeLoopDiagnostics"],
             path: "Tests/ForgeLoopAgentTests"
         ),
         .testTarget(

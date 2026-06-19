@@ -1,5 +1,6 @@
 import Foundation
 import ForgeLoopAI
+import ForgeLoopDiagnostics
 
 private let agentToolSchema = ToolArgsSchema(fields: [
     ToolArgField(name: "description", type: .string, required: true),
@@ -14,15 +15,21 @@ public struct SubagentTool: Tool {
     private let subagents: [SubagentDefinition]
     private let parentConfig: CodingAgentConfig
     private let parentSessionId: String
+    private let diagnostics: Diagnostics
+    private let parentTraceContext: TraceContext?
 
     public init(
         subagents: [SubagentDefinition],
         parentConfig: CodingAgentConfig,
-        parentSessionId: String = ""
+        parentSessionId: String = "",
+        diagnostics: Diagnostics = Diagnostics(),
+        parentTraceContext: TraceContext? = nil
     ) {
         self.subagents = subagents
         self.parentConfig = parentConfig
         self.parentSessionId = parentSessionId
+        self.diagnostics = diagnostics
+        self.parentTraceContext = parentTraceContext
     }
 
     public func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
@@ -53,11 +60,14 @@ public struct SubagentTool: Tool {
         }
 
         do {
+            let parentTraceContext = TraceContextStorage.current ?? self.parentTraceContext
             let result = try await runSubagent(
                 definition: definition,
                 taskPrompt: taskPrompt,
                 parentConfig: parentConfig,
                 parentSessionId: parentSessionId,
+                parentTraceContext: parentTraceContext,
+                diagnostics: diagnostics,
                 cancellation: cancellation
             )
             return ToolResult(output: result.text, isError: false)
@@ -73,11 +83,15 @@ public struct SubagentTool: Tool {
 public func createAgentTool(
     subagents: [SubagentDefinition],
     config: CodingAgentConfig,
-    parentSessionId: String = ""
+    parentSessionId: String = "",
+    parentTraceContext: TraceContext? = nil,
+    diagnostics: Diagnostics = Diagnostics()
 ) -> any Tool {
     SubagentTool(
         subagents: subagents,
         parentConfig: config,
-        parentSessionId: parentSessionId
+        parentSessionId: parentSessionId,
+        diagnostics: diagnostics,
+        parentTraceContext: parentTraceContext
     )
 }

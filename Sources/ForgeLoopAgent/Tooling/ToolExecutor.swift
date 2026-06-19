@@ -1,5 +1,6 @@
 import Foundation
 import ForgeLoopAI
+import ForgeLoopDiagnostics
 
 public enum ToolErrorCode: String, Sendable {
     case missingArgument
@@ -55,12 +56,27 @@ public protocol Tool: Sendable {
 public final class ToolExecutor: @unchecked Sendable {
     private let lock = NSLock()
     private var tools: [String: any Tool] = [:]
+    private let diagnostics: Diagnostics
 
-    public init() {}
+    /// Safety invariant: `diagnostics` is a value type (`Sendable`), so sharing it
+    /// across concurrency boundaries is safe despite `@unchecked Sendable`.
+    public init(diagnostics: Diagnostics = Diagnostics()) {
+        self.diagnostics = diagnostics
+    }
 
     public func register(_ tool: any Tool) {
         lock.withLock {
             tools[tool.name] = tool
+        }
+        Task {
+            await diagnostics.log.log(
+                level: .debug,
+                message: "tool.registered",
+                attributes: [
+                    "tool": .string(tool.name),
+                    "available_tools": .string(availableToolNames.joined(separator: ","))
+                ]
+            )
         }
     }
 
@@ -68,17 +84,48 @@ public final class ToolExecutor: @unchecked Sendable {
         name: String,
         arguments: String,
         cwd: String,
-        cancellation: CancellationHandle?
+        cancellation: CancellationHandle?,
+        traceContext: TraceContext? = nil
     ) async -> ToolResult {
         let tool = lock.withLock { tools[name] }
-        guard let tool else {
+        let available = lock.withLock { Array(tools.keys).sorted() }
+
+        let span = await diagnostics.trace.startSpan(
+            name: "tool.execute",
+            parent: traceContext,
+            layer: "Agent",
+            operation: "execute",
+            attributes: [
+                "tool": .string(name),
+                "cwd": .string(cwd)
+            ]
+        )
+
+        guard let tool = tool else {
+            await diagnostics.trace.endSpan(
+                span,
+                attributes: [:],
+                error: TraceError(type: "unknownTool", message: "Unknown tool: \(name)")
+            )
             return ToolResult.error(
                 .unknownTool,
                 message: "Unknown tool: \(name)",
-                hint: "Available: \(lock.withLock { Array(tools.keys).sorted() }.joined(separator: ", "))"
+                hint: "Available: \(available.joined(separator: ", "))"
             )
         }
-        return await tool.execute(arguments: arguments, cwd: cwd, cancellation: cancellation)
+
+        let result = await TraceContextStorage.$current.withValue(span) {
+            await tool.execute(arguments: arguments, cwd: cwd, cancellation: cancellation)
+        }
+
+        let toolError: TraceError?
+        if result.isError, let code = result.errorCode {
+            toolError = TraceError(type: code.rawValue, message: result.output)
+        } else {
+            toolError = nil
+        }
+        await diagnostics.trace.endSpan(span, attributes: [:], error: toolError)
+        return result
     }
 
     public var availableToolNames: [String] {
