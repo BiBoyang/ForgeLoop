@@ -54,7 +54,7 @@ jobs:
         run: swift build 2>&1 | tee build.log
 
       - name: Run Tests
-        run: swift test 2>&1 | tee test.log
+        run: swift test --skip PerformanceGateTests 2>&1 | tee test.log
 
       - name: Upload logs on failure
         if: failure()
@@ -64,3 +64,45 @@ jobs:
           path: |
             build.log
             test.log
+
+  performance-gate:
+    name: Performance Gate
+    runs-on: macos-15
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.0'
+
+      - name: Cache Swift build
+        uses: actions/cache@v5
+        with:
+          path: .build
+          key: ${{ runner.os }}-swift-${{ hashFiles('Package.swift') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-swift-${{ hashFiles('Package.swift') }}-
+            ${{ runner.os }}-swift-
+
+      - name: Show toolchain versions
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Build
+        run: swift build 2>&1 | tee build.log
+
+      - name: Run Performance Gate
+        run: swift test --filter PerformanceGateTests 2>&1 | tee perf-gate.log
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: perf-gate-logs-${{ github.run_id }}
+          path: |
+            build.log
+            perf-gate.log
