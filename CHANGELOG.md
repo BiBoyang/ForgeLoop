@@ -2,6 +2,40 @@
 
 All notable changes to ForgeLoop will be documented in this file.
 
+## [0.4.0] — 2026-06-19
+
+### Added
+- **ForgeLoopDiagnostics** target — unified observability facade with `TraceSystem` + `LogSystem`.
+- **Full-stack tracing** across `Provider → SSE → Agent → Tool → Subagent → CLI → AppKit`.
+- **Structured logging** with `ConsoleLogSink` (stderr) and `FileLogSink` (JSON Lines, 10 MB rotation, 3 files).
+- **Sensitive data masking** for API keys, bearer tokens, and home-directory paths.
+- **CLI trace flags** — `--trace-level`, `--trace-file`, plus `FORGELOOP_TRACE_LEVEL` / `FORGELOOP_TRACE_FILE` env vars.
+- **AppKit trace toggle** via `UserDefaults` (`ForgeLoopAppTraceEnabled`, `ForgeLoopAppTraceLevel`, `ForgeLoopAppTraceFilePath`).
+- **Performance gate CI job** — `PerformanceGateTests` runs as a dedicated, non-blocking job in CI and nightly workflows.
+- **SwiftLint** config and CI lint job.
+
+### Changed
+- `AgentLoopConfig`, `StreamOptions`, `Agent`, `SessionCoordinator`, `PromptController`, `CodingTUI`, and `AppController` all accept an injected `Diagnostics` instance.
+- `PerformanceGateTests` is now skipped in the main `swift test` CI step and run separately to avoid blocking merges on runner noise.
+
+### Fixed
+- Multiple span lifecycle bugs in OpenAI/Anthropic/Gemini providers and `FauxProvider`.
+
+## [0.3.0] — 2026-06-18
+
+### Added
+- **Security hardening** — `CredentialStore` / `SessionStore` permissions, `PathGuard` symlink resolution, `BashTool` / `ProcessRunner` command-injection defenses.
+- **Concurrency fixes** — `SSEParser` made struct, `Agent` mutable state protected by lock, provider `Task.detached` replaced with structured concurrency.
+- **Tool fixes** — `EditTool` validation/anchor/backup, `BackgroundTaskManager` resource limits.
+- **Test coverage** — cross-provider contract tests (OpenAI responses/chat, Anthropic, Gemini), flaky test fixes.
+- **Documentation** — `ARCHITECTURE.md`, `AGENTS.md`, `RELEASE-CHECKLIST.md`, `COLLABORATION.md`, `KIMI.md`.
+- **CI split** — `.github/workflows/ci.yml` for PR/push and `.github/workflows/nightly.yml` for scheduled + dispatch runs.
+
+### Changed
+- `CodingTUI.swift` split into `CodingTUIStatus`, `CodingTUIKeybindings`, `CodingTUISession` and rendering/input extensions.
+- `SessionCoordinator` now shared between CLI and AppKit frontends.
+- `ForgeLoopTestSupport` extracted as a common test helper target.
+
 ## [0.2.0] — 2026-06-17
 
 ### Added

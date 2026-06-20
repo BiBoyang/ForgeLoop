@@ -1,5 +1,29 @@
 # Review Log
 
+## 2026-06-19
+- P3 工程化 + 全量 trace 工程完成，发布 `v0.4.0`。
+- 新增 `ForgeLoopDiagnostics` target：
+  - `TraceSystem` / `LogSystem` 双协议 + `Diagnostics` 统一门面；
+  - `ConsoleLogSink`、`FileLogSink`（10 MB 滚动，保留 3 个文件）、`JSONLogFormatter`、`SensitiveDataMasker`。
+- 全链路 trace 接入：
+  - **ForgeLoopAI**：`APIRegistry`、HTTP client、OpenAI/Anthropic/Gemini/Faux provider 均创建 span；
+  - **ForgeLoopAgent**：`Agent.run`、`AgentLoop.turn`、`ToolExecutor`、`SubagentTool` 嵌套 span；
+  - **ForgeLoopCli**：`SessionCoordinator.submit` 创建 root `session.submit` span；
+  - **ForgeLoopApp**：AppKit 窗口/标签/模型切换生命周期日志。
+- CLI/AppKit trace 启用：
+  - CLI：`--trace-level`、`--trace-file`、`FORGELOOP_TRACE_LEVEL`、`FORGELOOP_TRACE_FILE`；
+  - AppKit：`UserDefaults` `ForgeLoopAppTraceEnabled` / `ForgeLoopAppTraceLevel` / `ForgeLoopAppTraceFilePath`。
+- 工程化：
+  - 接入 SwiftLint（`.swiftlint.yml` + CI lint job）；
+  - `PerformanceGateTests` 拆分为独立 CI job，`continue-on-error: true` 防 runner 噪声阻塞 PR；
+  - 同步更新 `README.md`、`CHANGELOG.md`。
+- 验证：
+  - `swift build` OK；
+  - `swift test` 591 tests，0 failures；
+  - `swiftlint lint` 0 serious；
+  - `swift test --skip PerformanceGateTests` / `swift test --filter PerformanceGateTests` 均通过。
+- 下一步：进入 P4 规划，或处理 P3 backlog（FauxProvider span 顺序统一、`SensitiveDataMasker` actor→struct）。
+
 ## 2026-06-18
 - P0–P2 修复收口完成，发布 `v0.3.0`。
 - P0（安全与并发修复）：
