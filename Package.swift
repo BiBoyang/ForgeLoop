@@ -57,6 +57,16 @@ let package = Package(
             ],
             path: "Sources/ForgeLoopApp"
         ),
+        .target(
+            name: "ForgeLoopEval",
+            dependencies: [],
+            path: "Sources/ForgeLoopEval"
+        ),
+        .testTarget(
+            name: "ForgeLoopEvalTests",
+            dependencies: ["ForgeLoopEval"],
+            path: "Tests/ForgeLoopEvalTests"
+        ),
         .testTarget(
             name: "ForgeLoopAITests",
             dependencies: ["ForgeLoopAI", "ForgeLoopTestSupport", "ForgeLoopDiagnostics"],
