@@ -33,6 +33,7 @@
 - 不允许用“加 `@MainActor`”做兜底修复，必须说明隔离边界为何正确。
 - 长任务必须可取消，并在循环/等待点检查取消状态。
 - `@unchecked Sendable` / `nonisolated(unsafe)` 仅在必要时使用，并写明安全不变量。
+- **无状态/纯计算工具类优先使用 `Sendable struct`；只有需要保护可变状态时才用 actor，避免调用点承担不必要的 `await`。**
 
 ## 6) 代码与测试要求
 - 修复根因，不做表面补丁；保持改动聚焦、最小化。
@@ -54,4 +55,8 @@
 - 通用协作流程见 `COLLABORATION.md`（你写代码，AI 做规划+评审）。
 - Claude Code 用户额外阅读 `Claude.md`。
 - Kimi Code CLI 用户额外阅读 `KIMI.md`。
+
+## 9) Diagnostics 与 Trace 规则
+- **span 生命周期顺序**：所有 provider / agent / tool 的 span 必须在事件流对外产生最终结果（如 `output.end(...)`）之前调用 `endSpan`，确保 trace duration 反映真实处理时间。
+- **UserDefaults URL 兼容**：通过 `UserDefaults` 读取文件路径配置时，必须同时支持 `URL`（`defaults.url(forKey:)`）和 `String`（`defaults.string(forKey:)`）两种写入方式，避免命令行 `defaults write ... -string` 失效。
 
