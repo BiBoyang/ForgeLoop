@@ -72,13 +72,6 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
                     span: span
                 )
             }
-
-            let cancelled = options?.cancellation?.isCancelled == true || Task.isCancelled
-            await diagnostics.trace.endSpan(
-                span,
-                attributes: [:],
-                error: cancelled ? TraceError(type: "Cancellation", message: "Request was aborted") : nil
-            )
         }
         options?.cancellation?.onCancel { _ in
             worker.cancel()
@@ -97,6 +90,15 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
         diagnostics: Diagnostics,
         span: TraceContext
     ) async {
+        var spanError: TraceError?
+        var ended = false
+
+        func finishSpan(_ error: TraceError?) async {
+            guard !ended else { return }
+            ended = true
+            await diagnostics.trace.endSpan(span, attributes: [:], error: error)
+        }
+
         let answer = Self.buildAnswer(context: context)
         var partial = AssistantMessage(content: [.text(TextContent(text: ""))], stopReason: .endTurn)
         var lastMessageUpdateLog: ContinuousClock.Instant?
@@ -117,20 +119,24 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
         output.push(.start(partial: partial))
         output.push(.textStart(contentIndex: 0, partial: partial))
 
-        func emitAbortIfNeeded() -> Bool {
+        func emitAbortIfNeeded() async -> Bool {
             guard options?.cancellation?.isCancelled == true || Task.isCancelled else { return false }
+            if spanError == nil {
+                spanError = TraceError(type: "Cancellation", message: "Request was aborted")
+            }
             let aborted = AssistantMessage(
                 content: [.text(TextContent(text: partialText(from: partial)))],
                 stopReason: .aborted,
                 errorMessage: "Request was aborted"
             )
             output.push(.error(reason: .aborted, error: aborted))
+            await finishSpan(spanError)
             output.end(aborted)
             return true
         }
 
         for chunk in Self.chunk(answer, size: 6) {
-            if emitAbortIfNeeded() { return }
+            if await emitAbortIfNeeded() { return }
             let merged = partialText(from: partial) + chunk
             partial = AssistantMessage(content: [.text(TextContent(text: merged))], stopReason: .endTurn)
             output.push(.textDelta(contentIndex: 0, delta: chunk, partial: partial))
@@ -139,18 +145,22 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
                 try await Task.sleep(nanoseconds: tokenDelayNanos)
             } catch {
                 if error is CancellationError {
-                    _ = emitAbortIfNeeded()
+                    _ = await emitAbortIfNeeded()
+                } else {
+                    spanError = TraceError(type: "StreamError", message: "\(error)")
+                    await finishSpan(spanError)
                 }
                 return
             }
         }
 
-        if emitAbortIfNeeded() { return }
+        if await emitAbortIfNeeded() { return }
 
         let finalText = partialText(from: partial)
         let final = AssistantMessage(content: [.text(TextContent(text: finalText))], stopReason: .endTurn)
         output.push(.textEnd(contentIndex: 0, content: finalText, partial: final))
         output.push(.done(reason: .endTurn, message: final))
+        await finishSpan(spanError)
         output.end(final)
     }
 
@@ -165,14 +175,27 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
         diagnostics: Diagnostics,
         span: TraceContext
     ) async {
-        func emitAbortIfNeeded() -> Bool {
+        var spanError: TraceError?
+        var ended = false
+
+        func finishSpan(_ error: TraceError?) async {
+            guard !ended else { return }
+            ended = true
+            await diagnostics.trace.endSpan(span, attributes: [:], error: error)
+        }
+
+        func emitAbortIfNeeded() async -> Bool {
             guard options?.cancellation?.isCancelled == true || Task.isCancelled else { return false }
+            if spanError == nil {
+                spanError = TraceError(type: "Cancellation", message: "Request was aborted")
+            }
             let aborted = AssistantMessage(
                 content: [.toolCall(ToolCall(id: "call_faux_001", name: toolName, arguments: arguments))],
                 stopReason: .aborted,
                 errorMessage: "Request was aborted"
             )
             output.push(.error(reason: .aborted, error: aborted))
+            await finishSpan(spanError)
             output.end(aborted)
             return true
         }
@@ -183,13 +206,14 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
         )
         output.push(.start(partial: partial))
 
-        if emitAbortIfNeeded() { return }
+        if await emitAbortIfNeeded() { return }
 
         let final = AssistantMessage(
             content: [.toolCall(ToolCall(id: "call_faux_001", name: toolName, arguments: arguments))],
             stopReason: .toolUse
         )
         output.push(.done(reason: .toolUse, message: final))
+        await finishSpan(spanError)
         output.end(final)
     }
 
@@ -206,6 +230,15 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
         diagnostics: Diagnostics,
         span: TraceContext
     ) async {
+        var spanError: TraceError?
+        var ended = false
+
+        func finishSpan(_ error: TraceError?) async {
+            guard !ended else { return }
+            ended = true
+            await diagnostics.trace.endSpan(span, attributes: [:], error: error)
+        }
+
         var partial = AssistantMessage(content: [.text(TextContent(text: ""))], stopReason: .endTurn)
         var lastMessageUpdateLog: ContinuousClock.Instant?
 
@@ -225,8 +258,11 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
         output.push(.start(partial: partial))
         output.push(.textStart(contentIndex: 0, partial: partial))
 
-        func emitAbortIfNeeded() -> Bool {
+        func emitAbortIfNeeded() async -> Bool {
             guard options?.cancellation?.isCancelled == true || Task.isCancelled else { return false }
+            if spanError == nil {
+                spanError = TraceError(type: "Cancellation", message: "Request was aborted")
+            }
             let finalText = partialText(from: partial)
             let aborted = AssistantMessage(
                 content: [
@@ -237,12 +273,13 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
                 errorMessage: "Request was aborted"
             )
             output.push(.error(reason: .aborted, error: aborted))
+            await finishSpan(spanError)
             output.end(aborted)
             return true
         }
 
         for chunk in Self.chunk(text, size: 6) {
-            if emitAbortIfNeeded() { return }
+            if await emitAbortIfNeeded() { return }
             let merged = partialText(from: partial) + chunk
             partial = AssistantMessage(content: [.text(TextContent(text: merged))], stopReason: .endTurn)
             output.push(.textDelta(contentIndex: 0, delta: chunk, partial: partial))
@@ -251,13 +288,16 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
                 try await Task.sleep(nanoseconds: tokenDelayNanos)
             } catch {
                 if error is CancellationError {
-                    _ = emitAbortIfNeeded()
+                    _ = await emitAbortIfNeeded()
+                } else {
+                    spanError = TraceError(type: "StreamError", message: "\(error)")
+                    await finishSpan(spanError)
                 }
                 return
             }
         }
 
-        if emitAbortIfNeeded() { return }
+        if await emitAbortIfNeeded() { return }
 
         let finalText = partialText(from: partial)
         let final = AssistantMessage(
@@ -269,6 +309,7 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
         )
         output.push(.textEnd(contentIndex: 0, content: finalText, partial: final))
         output.push(.done(reason: .toolUse, message: final))
+        await finishSpan(spanError)
         output.end(final)
     }
 
@@ -281,14 +322,27 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
         diagnostics: Diagnostics,
         span: TraceContext
     ) async {
-        func emitAbortIfNeeded() -> Bool {
+        var spanError: TraceError?
+        var ended = false
+
+        func finishSpan(_ error: TraceError?) async {
+            guard !ended else { return }
+            ended = true
+            await diagnostics.trace.endSpan(span, attributes: [:], error: error)
+        }
+
+        func emitAbortIfNeeded() async -> Bool {
             guard options?.cancellation?.isCancelled == true || Task.isCancelled else { return false }
+            if spanError == nil {
+                spanError = TraceError(type: "Cancellation", message: "Request was aborted")
+            }
             var content: [AssistantBlock] = []
             for (index, tool) in tools.enumerated() {
                 content.append(.toolCall(ToolCall(id: "call_faux_\(index + 1)", name: tool.name, arguments: tool.arguments)))
             }
             let aborted = AssistantMessage(content: content, stopReason: .aborted, errorMessage: "Request was aborted")
             output.push(.error(reason: .aborted, error: aborted))
+            await finishSpan(spanError)
             output.end(aborted)
             return true
         }
@@ -300,10 +354,11 @@ public final class FauxProvider: APIProvider, @unchecked Sendable {
         let partial = AssistantMessage(content: content, stopReason: .toolUse)
         output.push(.start(partial: partial))
 
-        if emitAbortIfNeeded() { return }
+        if await emitAbortIfNeeded() { return }
 
         let final = AssistantMessage(content: content, stopReason: .toolUse)
         output.push(.done(reason: .toolUse, message: final))
+        await finishSpan(spanError)
         output.end(final)
     }
 }

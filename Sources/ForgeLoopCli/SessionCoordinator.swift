@@ -60,7 +60,7 @@ public final class SessionCoordinator {
             }
         }
 
-        let maskedText = await masker.mask(text, preservePrefixLength: 20)
+        let maskedText = masker.mask(text, preservePrefixLength: 20)
         await diagnostics.log.log(
             level: .debug,
             message: "session.submit.start",

@@ -172,6 +172,32 @@ data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello world!"]
         XCTAssertTrue(hasEnd, "Expected captured log to contain span.end")
     }
 
+    func testFauxStreamEmitsSpanStartAndEnd() async throws {
+        let (diagnostics, capture) = makeDiagnostics()
+
+        let model = Model(
+            id: "faux-test",
+            name: "Faux Test",
+            api: "faux",
+            provider: "faux"
+        )
+        let provider = FauxProvider(tokenDelayNanos: 0)
+
+        let stream = await provider.stream(
+            model: model,
+            context: testContext,
+            options: StreamOptions(diagnostics: diagnostics)
+        )
+
+        for await _ in stream {}
+
+        let hasStart = capture.captured.contains { $0.contains("span.start:") }
+        let hasEnd = capture.captured.contains { $0.contains("span.end:") }
+
+        XCTAssertTrue(hasStart, "Expected captured log to contain span.start")
+        XCTAssertTrue(hasEnd, "Expected captured log to contain span.end")
+    }
+
     func testProviderNotFoundEndsSpanWithError() async throws {
         let (diagnostics, capture) = makeDiagnostics()
 

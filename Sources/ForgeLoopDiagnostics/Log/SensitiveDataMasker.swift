@@ -2,8 +2,9 @@ import Foundation
 
 /// Redacts potentially sensitive information from strings and log attributes.
 ///
-/// The masker is an actor so it can safely be shared by concurrent log sinks.
-public actor SensitiveDataMasker {
+/// The masker is a value type with no mutable state, so it can safely be shared
+/// by concurrent log sinks without synchronization overhead.
+public struct SensitiveDataMasker: Sendable {
     public init() {}
 
     /// Masks sensitive patterns in a string.
