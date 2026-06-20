@@ -11,6 +11,7 @@
 - `ForgeLoopAgent` for lifecycle, loop control, tools, and cancellation
 - `ForgeLoopCli` for shared session coordination, interaction, routing, and terminal UX
 - `ForgeLoopApp` for the native AppKit GUI frontend
+- `ForgeLoopDiagnostics` for cross-layer tracing and structured logging
 
 Both `ForgeLoopCli` and `ForgeLoopApp` share `SessionCoordinator`, which owns an `Agent`, `AttachmentStore`, `ModelStore`, `SessionStore`, and slash-command registry.
 
@@ -37,6 +38,45 @@ If you want to tune this app-level behavior, update `forgeLoopMarkdownRenderOpti
 - `/queue` supports normalized previews, top-5 output with `... and N more`, and `/queue clear`
 - attachment commands are available: `/attach`, `/attachments [clear]`, `/detach`
 - auto-compact feedback appears as footer notice, and recent compaction state is shown via status badge
+
+## Diagnostics and Tracing
+
+`ForgeLoopDiagnostics` provides a unified observability facade used across all layers:
+
+- `TraceSystem` for spans and distributed context
+- `LogSystem` for structured, level-filtered logs
+- `ConsoleLogSink` (stderr) and `FileLogSink` (JSON Lines, 10 MB rotation, 3 files)
+- `SensitiveDataMasker` redacts API keys, bearer tokens, and home-directory paths
+
+### CLI
+
+```bash
+forgeloop --trace-level debug
+forgeloop --trace-level info --trace-file /tmp/forgeloop.jsonl
+FORGELOOP_TRACE_LEVEL=debug FORGELOOP_TRACE_FILE=/tmp/trace.jsonl forgeloop
+```
+
+### AppKit
+
+```bash
+defaults write com.forgeloop.app ForgeLoopAppTraceEnabled -bool true
+defaults write com.forgeloop.app ForgeLoopAppTraceLevel -string "info"
+defaults write com.forgeloop.app ForgeLoopAppTraceFilePath -string "~/Library/Logs/forgeloop-trace.jsonl"
+```
+
+When tracing is disabled (the default), `Diagnostics()` is a zero-overhead no-op.
+
+## Performance Gate
+
+`PerformanceGateTests` runs on every push and pull request as a dedicated CI job. It is marked `continue-on-error: true` so that noisy GitHub Actions runners do not block merges, while still surfacing regressions in the logs.
+
+Run locally:
+
+```bash
+swift test --filter PerformanceGateTests
+```
+
+See `docs/perf-regression-policy.md` and `docs/perf-baseline-snapshots.md` for thresholds and baseline update rules.
 
 ## AppKit Application
 
