@@ -91,13 +91,15 @@ public actor Workspace {
     /// Resolve a relative path against the workspace root, rejecting escapes.
     ///
     /// The returned URL is standardized and guaranteed to reside under
-    /// `rootURL`. Paths containing `..` or absolute paths are rejected.
-    func resolvedURL(for path: String) throws -> URL {
+    /// `rootURL`. Paths containing `..` as a path component, or paths that
+    /// resolve outside the workspace (e.g. via symlinks), are rejected.
+    public func resolvedURL(for path: String) throws -> URL {
         let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !trimmed.isEmpty else {
             throw WorkspaceError.invalidPath(path: path, reason: "path is empty")
         }
-        guard !trimmed.contains("..") else {
+        let components = trimmed.split(separator: "/")
+        guard !components.contains("..") else {
             throw WorkspaceError.invalidPath(path: path, reason: "path escapes workspace")
         }
         let target = rootURL.appendingPathComponent(trimmed, isDirectory: false)

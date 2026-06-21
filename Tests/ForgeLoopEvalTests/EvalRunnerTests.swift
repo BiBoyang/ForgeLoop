@@ -27,11 +27,9 @@ final class EvalRunnerTests: XCTestCase {
         let workspaceA = try await Workspace.makeTemporary(prefix: "EvalRunnerTests-A")
         let workspaceB = try await Workspace.makeTemporary(prefix: "EvalRunnerTests-B")
 
-        defer {
-            Task {
-                try? await workspaceA.cleanup()
-                try? await workspaceB.cleanup()
-            }
+        addTeardownBlock {
+            try? await workspaceA.cleanup()
+            try? await workspaceB.cleanup()
         }
 
         try await workspaceA.write(EvalFile(path: "file.txt", content: "A"))
@@ -64,10 +62,8 @@ final class EvalRunnerTests: XCTestCase {
 
     func testWorkspaceRejectsEscapingPaths() async throws {
         let workspace = try await Workspace.makeTemporary(prefix: "EvalRunnerTests-Escape")
-        defer {
-            Task {
-                try? await workspace.cleanup()
-            }
+        addTeardownBlock {
+            try? await workspace.cleanup()
         }
 
         do {
