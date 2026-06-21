@@ -1,6 +1,7 @@
 import Foundation
 import ForgeLoopCli
 import ForgeLoopDiagnostics
+import ForgeLoopEval
 
 @main
 struct ForgeLoopCLI {
@@ -46,6 +47,20 @@ struct ForgeLoopCLI {
             await runOrExit {
                 try await ForgeLoop.runLogin()
             }
+        case "eval":
+            let evalArgs = Array(remainingArgs.dropFirst())
+            do {
+                let success = try await EvalCommand().run(
+                    arguments: evalArgs,
+                    diagnostics: diagnostics
+                )
+                if !success {
+                    Foundation.exit(1)
+                }
+            } catch {
+                FileHandle.standardError.write(Data("forgeloop eval: \(error)\n".utf8))
+                Foundation.exit(1)
+            }
         case "-h", "--help":
             printUsage()
         default:
@@ -72,6 +87,7 @@ struct ForgeLoopCLI {
         usage:
           forgeloop [--model <id>] [--trace-level <level>] [--trace-file <path>]  launch coding tui scaffold
           forgeloop login                                                          save API key to credentials
+          forgeloop eval [--suite <name>] [--provider <name>] [--format <format>] [--output <path>]  run benchmark suite
           forgeloop --help                                                         show help
 
         trace options:

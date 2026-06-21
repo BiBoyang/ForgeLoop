@@ -44,7 +44,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "forgeloop",
-            dependencies: ["ForgeLoopCli"],
+            dependencies: [
+                "ForgeLoopCli",
+                "ForgeLoopEval",
+            ],
             path: "Sources/forgeloop"
         ),
         .executableTarget(
