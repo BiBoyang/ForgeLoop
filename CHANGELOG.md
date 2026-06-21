@@ -2,6 +2,20 @@
 
 All notable changes to ForgeLoop will be documented in this file.
 
+## [0.5.0] — 2026-06-21
+
+### Added
+
+- **ForgeLoopEval** target — eval/benchmark infrastructure for measuring agent behavior.
+- **Core eval models** — `EvalCase`, `EvalFile`, `EvalAssertion`, `EvalResult`, `EvalConfig` (all `Sendable` / `Codable`).
+- **EvalRunner** with isolated `Workspace` — per-case temporary directory, path-escape validation, timeout handling, and `Diagnostics` trace integration.
+- **EvalScorer** framework — `EvalScorer` protocol, `CompositeScorer`, `FileContentScorer`, `FileExistsScorer`, `CommandOutputScorer`, `TextMatchScorer`.
+- **EvalReporter** — JSON and Markdown report rendering with summary statistics and failure details.
+- **Suite1 benchmark** — three deterministic coding cases (Create README, Add Function, Fix Typo) runnable with `FauxProvider`.
+- **DeterministicRunner / DeterministicProvider** — built-in per-case `FauxProvider` mappings for reproducible CI runs.
+- **CLI `forgeloop eval`** — run suites, choose provider/format/output, deterministic mode, and non-zero exit codes on failure.
+- **Nightly benchmark CI job** — runs `forgeloop eval --deterministic`, uploads `benchmark-result.json` artifact, and fails on regression.
+
 ## [0.4.0] — 2026-06-19
 
 ### Added
