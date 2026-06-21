@@ -12,6 +12,7 @@
 - `ForgeLoopCli` for shared session coordination, interaction, routing, and terminal UX
 - `ForgeLoopApp` for the native AppKit GUI frontend
 - `ForgeLoopDiagnostics` for cross-layer tracing and structured logging
+- `ForgeLoopEval` for eval/benchmark infrastructure
 
 Both `ForgeLoopCli` and `ForgeLoopApp` share `SessionCoordinator`, which owns an `Agent`, `AttachmentStore`, `ModelStore`, `SessionStore`, and slash-command registry.
 
@@ -77,6 +78,31 @@ swift test --filter PerformanceGateTests
 ```
 
 See `docs/perf-regression-policy.md` and `docs/perf-baseline-snapshots.md` for thresholds and baseline update rules.
+
+## Eval / Benchmark
+
+`ForgeLoopEval` provides a reproducible, isolated benchmark framework for measuring agent behavior:
+
+- `EvalCase` describes a task prompt, initial workspace files, expected assertions, and timeout.
+- `EvalRunner` initializes an isolated `Workspace`, drives the agent, and scores assertions.
+- `EvalScorer` checks file content, file existence, and command output assertions.
+- `EvalReporter` renders results as JSON (for CI) or Markdown (for humans).
+- `BenchmarkSuites.suite1` contains deterministic example cases.
+
+Run locally:
+
+```bash
+# Default Suite1 with the built-in deterministic FauxProvider mappings
+forgeloop eval --deterministic
+
+# Output JSON to a file
+forgeloop eval --deterministic --format json --output benchmark-result.json
+
+# Use a real provider (requires a registered API key)
+forgeloop eval --suite Suite1 --provider openai --format markdown
+```
+
+The nightly CI workflow runs the deterministic benchmark and uploads `benchmark-result.json` as an artifact. The benchmark job is **not** marked `continue-on-error`, so functional regressions block the nightly run.
 
 ## AppKit Application
 
