@@ -119,3 +119,45 @@ jobs:
           path: |
             build.log
             perf-gate.log
+
+  benchmark:
+    needs: check-changes
+    if: ${{ github.event_name != 'schedule' || needs.check-changes.outputs.has_changes == 'true' }}
+    name: Benchmark
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.0'
+
+      - name: Cache Swift build
+        uses: actions/cache@v5
+        with:
+          path: .build
+          key: ${{ runner.os }}-swift-${{ hashFiles('Package.swift') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-swift-${{ hashFiles('Package.swift') }}-
+            ${{ runner.os }}-swift-
+
+      - name: Build
+        run: swift build 2>&1 | tee build.log
+
+      - name: Run benchmark
+        run: .build/debug/forgeloop eval --deterministic --format json --output benchmark-result.json
+
+      - name: Upload benchmark result
+        uses: actions/upload-artifact@v5
+        with:
+          name: benchmark-result
+          path: benchmark-result.json
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: nightly-benchmark-logs-${{ github.run_id }}
+          path: build.log

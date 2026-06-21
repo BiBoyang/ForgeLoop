@@ -55,6 +55,7 @@ final class EvalCommandTests: XCTestCase {
                 providerName: "faux",
                 format: "markdown",
                 outputPath: outputPath,
+                deterministic: false,
                 diagnostics: Diagnostics()
             )
             XCTFail("Expected missingOutputDirectory error")
@@ -64,8 +65,9 @@ final class EvalCommandTests: XCTestCase {
     }
 
     func testRunSuiteWithFauxProviderWritesReport() async throws {
+        let apiName = "eval-command-test-\(UUID().uuidString)"
         let provider = FauxProvider(
-            api: "faux",
+            api: apiName,
             mode: .toolCall(
                 name: "bash",
                 arguments: #"{"command": "/usr/bin/touch", "args": ["created.txt"]}"#
@@ -73,6 +75,9 @@ final class EvalCommandTests: XCTestCase {
         )
         let sourceId = "eval-command-test-\(UUID().uuidString)"
         await APIRegistry.shared.register(provider, sourceId: sourceId)
+        addTeardownBlock {
+            await APIRegistry.shared.unregisterSource(sourceId)
+        }
 
         let suite = BenchmarkSuite(
             name: "Test",
@@ -93,17 +98,19 @@ final class EvalCommandTests: XCTestCase {
         let outputPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("eval-command-test-\(UUID().uuidString).md")
             .path
+        addTeardownBlock {
+            try? FileManager.default.removeItem(atPath: outputPath)
+        }
 
         let command = EvalCommand()
         let success = try await command.run(
             suite: suite,
-            providerName: "faux",
+            providerName: apiName,
             format: "markdown",
             outputPath: outputPath,
+            deterministic: false,
             diagnostics: Diagnostics()
         )
-
-        await APIRegistry.shared.unregisterSource(sourceId)
 
         XCTAssertTrue(success, "Expected the suite to pass")
         let report = try String(contentsOfFile: outputPath, encoding: .utf8)
