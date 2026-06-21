@@ -37,8 +37,8 @@ final class EvalRunnerTests: XCTestCase {
         try await workspaceA.write(EvalFile(path: "file.txt", content: "A"))
         try await workspaceB.write(EvalFile(path: "file.txt", content: "B"))
 
-        let rootA = await workspaceA.rootURL
-        let rootB = await workspaceB.rootURL
+        let rootA = workspaceA.rootURL
+        let rootB = workspaceB.rootURL
         XCTAssertNotEqual(rootA, rootB)
 
         let contentA = try String(contentsOf: rootA.appendingPathComponent("file.txt"), encoding: .utf8)

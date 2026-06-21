@@ -9,7 +9,7 @@ import Foundation
 /// isolation guarantees that concurrent writes to the same workspace are serialized.
 public actor Workspace {
     /// The root directory of this workspace.
-    public let rootURL: URL
+    public nonisolated let rootURL: URL
 
     private let shouldCleanup: Bool
 
@@ -62,7 +62,7 @@ public actor Workspace {
     /// Relative paths are resolved against `rootURL`. Paths that escape the
     /// workspace (e.g. containing `..`) are rejected.
     public func write(_ file: EvalFile) throws {
-        let targetURL = try resolve(file.path)
+        let targetURL = try resolvedURL(for: file.path)
         let parentDir = targetURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(
             at: parentDir,
@@ -89,7 +89,10 @@ public actor Workspace {
     }
 
     /// Resolve a relative path against the workspace root, rejecting escapes.
-    private func resolve(_ path: String) throws -> URL {
+    ///
+    /// The returned URL is standardized and guaranteed to reside under
+    /// `rootURL`. Paths containing `..` or absolute paths are rejected.
+    func resolvedURL(for path: String) throws -> URL {
         let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !trimmed.isEmpty else {
             throw WorkspaceError.invalidPath(path: path, reason: "path is empty")

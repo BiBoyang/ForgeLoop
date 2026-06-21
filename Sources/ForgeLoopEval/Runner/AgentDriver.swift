@@ -41,7 +41,7 @@ public final class AgentDriver: @unchecked Sendable {
             baseUrl: ""
         )
 
-        let rootURL = await workspace.rootURL
+        let rootURL = workspace.rootURL
         let cwd = rootURL.path
 
         let agent = await makeCodingAgent(

@@ -5,18 +5,21 @@ import ForgeLoopDiagnostics
 ///
 /// `EvalRunner` is a plain `Sendable` struct with no mutable state. It creates a
 /// temporary `Workspace`, writes the case's initial files, drives the agent via
-/// `AgentDriver`, evaluates assertions, and cleans up. The run itself is traced
-/// through the injected `Diagnostics` facade.
+/// `AgentDriver`, scores assertions through the injected `EvalScorer`, and cleans
+/// up. The run itself is traced through the injected `Diagnostics` facade.
 public struct EvalRunner: Sendable {
     public let config: EvalConfig
     public let diagnostics: Diagnostics
+    public let scorer: any EvalScorer
 
     public init(
         config: EvalConfig = EvalConfig(),
-        diagnostics: Diagnostics = Diagnostics()
+        diagnostics: Diagnostics = Diagnostics(),
+        scorer: any EvalScorer = CompositeScorer()
     ) {
         self.config = config
         self.diagnostics = diagnostics
+        self.scorer = scorer
     }
 
     /// Run a single eval case and return an `EvalResult`.
@@ -73,10 +76,14 @@ public struct EvalRunner: Sendable {
             )
 
             let duration = ContinuousClock().now - start
-            let assertionResults = await evaluate(
-                assertions: evalCase.assertions,
-                workspace: workspace
-            )
+            var assertionResults: [AssertionResult] = []
+            for assertion in evalCase.assertions {
+                let result = await scorer.score(
+                    assertion: assertion,
+                    workspace: workspace
+                )
+                assertionResults.append(result)
+            }
             let allPassed = assertionResults.allSatisfy(\.passed)
             let passed = driverResult.error == nil && allPassed
 
@@ -164,154 +171,10 @@ public struct EvalRunner: Sendable {
         }
     }
 
-    /// Evaluate a list of assertions against the workspace.
-    private func evaluate(
-        assertions: [EvalAssertion],
-        workspace: Workspace
-    ) async -> [AssertionResult] {
-        var results: [AssertionResult] = []
-        for assertion in assertions {
-            let result = await evaluate(assertion: assertion, workspace: workspace)
-            results.append(result)
-        }
-        return results
-    }
-
-    /// Evaluate a single assertion.
-    private func evaluate(
-        assertion: EvalAssertion,
-        workspace: Workspace
-    ) async -> AssertionResult {
-        let rootURL = await workspace.rootURL
-        switch assertion {
-        case .fileExists(let path):
-            let url = rootURL.appendingPathComponent(path)
-            let exists = FileManager.default.fileExists(atPath: url.path)
-            return AssertionResult(
-                assertion: assertion,
-                passed: exists,
-                message: exists ? "File exists: \(path)" : "File not found: \(path)"
-            )
-        case .fileContains(let path, let substring):
-            let url = rootURL.appendingPathComponent(path)
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                return AssertionResult(
-                    assertion: assertion,
-                    passed: false,
-                    message: "File not found: \(path)"
-                )
-            }
-            guard let content = try? String(contentsOf: url, encoding: .utf8) else {
-                return AssertionResult(
-                    assertion: assertion,
-                    passed: false,
-                    message: "Could not read file: \(path)"
-                )
-            }
-            let passed = content.contains(substring)
-            return AssertionResult(
-                assertion: assertion,
-                passed: passed,
-                message: passed
-                    ? "File \(path) contains '\(substring)'"
-                    : "File \(path) does not contain '\(substring)'"
-            )
-        case .fileNotContains(let path, let substring):
-            let url = rootURL.appendingPathComponent(path)
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                return AssertionResult(
-                    assertion: assertion,
-                    passed: false,
-                    message: "File not found: \(path)"
-                )
-            }
-            guard let content = try? String(contentsOf: url, encoding: .utf8) else {
-                return AssertionResult(
-                    assertion: assertion,
-                    passed: false,
-                    message: "Could not read file: \(path)"
-                )
-            }
-            let passed = !content.contains(substring)
-            return AssertionResult(
-                assertion: assertion,
-                passed: passed,
-                message: passed
-                    ? "File \(path) does not contain '\(substring)'"
-                    : "File \(path) contains '\(substring)'"
-            )
-        case .fileEquals(let path, let expected):
-            let url = rootURL.appendingPathComponent(path)
-            guard let content = try? String(contentsOf: url, encoding: .utf8) else {
-                return AssertionResult(
-                    assertion: assertion,
-                    passed: false,
-                    message: "Could not read file: \(path)"
-                )
-            }
-            let passed = content == expected
-            return AssertionResult(
-                assertion: assertion,
-                passed: passed,
-                message: passed
-                    ? "File \(path) matches expected content"
-                    : "File \(path) does not match expected content"
-            )
-        case .commandSucceeds(let command):
-            let result = await runCommand(command, in: rootURL)
-            return AssertionResult(
-                assertion: assertion,
-                passed: result.exitCode == 0,
-                message: result.exitCode == 0
-                    ? "Command succeeded: \(command.joined(separator: " "))"
-                    : "Command failed with exit code \(result.exitCode): \(result.output)"
-            )
-        case .commandOutputContains(let command, let substring):
-            let result = await runCommand(command, in: rootURL)
-            let passed = result.output.contains(substring)
-            return AssertionResult(
-                assertion: assertion,
-                passed: passed,
-                message: passed
-                    ? "Command output contains '\(substring)'"
-                    : "Command output does not contain '\(substring)'"
-            )
-        }
-    }
-
-    /// Run a shell command in the workspace and capture its output.
-    private func runCommand(_ command: [String], in directory: URL) async -> CommandResult {
-        guard !command.isEmpty else {
-            return CommandResult(exitCode: 1, output: "Empty command")
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = command
-        process.currentDirectoryURL = directory
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
-            return CommandResult(exitCode: Int(process.terminationStatus), output: output)
-        } catch {
-            return CommandResult(exitCode: 1, output: "\(error)")
-        }
-    }
 }
 
 /// Marker error thrown when an eval run exceeds its timeout.
 private struct EvalTimeoutError: Error {}
-
-private struct CommandResult: Sendable {
-    let exitCode: Int
-    let output: String
-}
 
 /// Run an async body with a timeout, cancelling the task if it expires.
 private func runWithTimeout<T: Sendable>(
