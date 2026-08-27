@@ -11,16 +11,22 @@ let package = Package(
         .library(name: "ForgeLoopAgent", targets: ["ForgeLoopAgent"]),
         .library(name: "ForgeLoopCli", targets: ["ForgeLoopCli"]),
         .library(name: "ForgeLoopDiagnostics", targets: ["ForgeLoopDiagnostics"]),
+        .library(name: "ForgeLoopGit", targets: ["ForgeLoopGit"]),
         .executable(name: "forgeloop", targets: ["forgeloop"]),
         .executable(name: "ForgeLoopApp", targets: ["ForgeLoopApp"]),
     ],
     dependencies: [
         .package(url: "https://github.com/BiBoyang/ForgeLoopTUI.git", from: "1.2.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.8.0"),
     ],
     targets: [
         .target(
             name: "ForgeLoopDiagnostics",
             path: "Sources/ForgeLoopDiagnostics"
+        ),
+        .target(
+            name: "ForgeLoopGit",
+            path: "Sources/ForgeLoopGit"
         ),
         .target(
             name: "ForgeLoopAI",
@@ -56,7 +62,9 @@ let package = Package(
                 "ForgeLoopCli",
                 "ForgeLoopAgent",
                 "ForgeLoopAI",
+                "ForgeLoopGit",
                 .product(name: "ForgeLoopTUI", package: "ForgeLoopTUI"),
+                .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources/ForgeLoopApp"
         ),
@@ -106,6 +114,11 @@ let package = Package(
             name: "ForgeLoopDiagnosticsTests",
             dependencies: ["ForgeLoopDiagnostics"],
             path: "Tests/ForgeLoopDiagnosticsTests"
+        ),
+        .testTarget(
+            name: "ForgeLoopGitTests",
+            dependencies: ["ForgeLoopGit"],
+            path: "Tests/ForgeLoopGitTests"
         ),
     ],
     swiftLanguageModes: [.v6]

@@ -1,5 +1,5 @@
 {
-  "originHash" : "69ee127d36073f276fc17e59c932025b98b5b56403a1874dc6d66956d7be3a6f",
+  "originHash" : "b3dba134f030d3d63f2fdaef76f1b9392b5537afba514d64a12ccd7360f3cb30",
   "pins" : [
     {
       "identity" : "forgelooptui",
@@ -8,6 +8,15 @@
       "state" : {
         "revision" : "076114b8170ac8e64408ac024556730e2c85f368",
         "version" : "1.2.0"
+      }
+    },
+    {
+      "identity" : "sparkle",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sparkle-project/Sparkle",
+      "state" : {
+        "revision" : "ac2def288cbff5cfc7df3ffef6abdf45b72bcb0a",
+        "version" : "2.9.6"
       }
     }
   ],

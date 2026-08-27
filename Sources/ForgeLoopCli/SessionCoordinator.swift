@@ -26,6 +26,14 @@ public final class SessionCoordinator {
     private let diagnostics: Diagnostics
     private let masker = SensitiveDataMasker()
 
+    /// Four-state activity for ambient surfaces (menu-bar tray). Derived from
+    /// the agent's own event stream inside `init` — no polling.
+    public private(set) var activity: SessionActivity = .idle
+    /// Called on the main actor whenever `activity` changes.
+    public var onActivityChange: (@MainActor (SessionActivity) -> Void)?
+    private var activityTracker = SessionActivityTracker()
+    private var activityUnsubscribe: Unsubscribe?
+
     public init(
         agent: Agent,
         modelStore: ModelStore? = nil,
@@ -40,6 +48,32 @@ public final class SessionCoordinator {
         self.sessionStore = sessionStore
         self.slashCommandRegistry = slashCommandRegistry
         self.diagnostics = diagnostics
+        subscribeActivity()
+    }
+
+    /// Feeds the agent's event stream into the activity tracker. The agent
+    /// emits from its own task (nonisolated); the hop onto the main actor
+    /// happens here, and everything downstream (`activity`, `onActivityChange`)
+    /// stays main-actor-isolated.
+    private func subscribeActivity() {
+        activityUnsubscribe = agent.subscribe { @MainActor [weak self] event, _ in
+            guard let self else { return }
+            if self.activityTracker.apply(event) {
+                let activity = self.activityTracker.activity
+                self.activity = activity
+                self.onActivityChange?(activity)
+            }
+        }
+    }
+
+    /// The user has seen this session's latest result (window focused on its
+    /// tab, or new input submitted): clear `done`/`needsAttention` back to
+    /// `idle`.
+    public func markActivitySeen() {
+        if activityTracker.markSeen() {
+            activity = activityTracker.activity
+            onActivityChange?(activity)
+        }
     }
 
     /// Submits user input. Handles slash commands, attachment injection, and

@@ -1,6 +1,8 @@
 .build/
 .swiftpm/
 .DS_Store
+# 本地打包产物（Scripts/build-app.sh 输出）
+*.app/
 KWWK-复刻计划.md
 docs/steps/HANDOFF-*.md
 sessions/

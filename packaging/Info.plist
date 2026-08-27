@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>ForgeLoop</string>
+	<key>CFBundleExecutable</key>
+	<string>ForgeLoopApp</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.forgeloop.app</string>
+	<key>CFBundleName</key>
+	<string>ForgeLoop</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/BiBoyang/ForgeLoop/releases/latest/download/appcast.xml</string>
+	<!-- EdDSA public key from Sparkle's `generate_keys -p`; the private key lives
+	     in the developer's login keychain and (for CI) in the SPARKLE_ED_KEY
+	     repository secret. See docs/RELEASING.md. -->
+	<key>SUPublicEDKey</key>
+	<string>qcfM5V2KOQCVBHJCwcqkkiZDlgHRi6GoPZM01cuMCQg=</string>
+</dict>
+</plist>
