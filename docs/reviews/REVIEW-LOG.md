@@ -1,5 +1,21 @@
 # Review Log
 
+## 2026-08-28
+- ForgeLoopApp 桌面化批次完成（git 面板 / worktree 管理 / 菜单栏托盘 / Sparkle 自动更新 + 打包流水线）：
+  - **ForgeLoopGit 新模块**：纯 Foundation 的 git 子进程封装与解析层（机制移植自 termio，MIT）：`GitService`（status/log/diff/commitDiff/currentBranch）、`WorktreeService`（list/add/remove，remove 支持 force，`sanitizedName` 名称清洗）、`DiffParser`、`GitRepositoryLocator`；无状态 `Sendable struct`，不依赖其他 target。
+  - **ForgeLoopApp 拆分**：`AppController` 按职责拆为 `+Window/+Tabs/+Input/+Rendering/+ModelPicker`（后续又增 `+MenuBar/+Updates`）。
+  - **Git 面板**：`GitPanelController`（NSSplitView 右侧栏，可折叠且状态记忆）只做视图承载；Changes/History/Worktrees 三段切换；diff 增删着色 + 行内 emphasis。
+  - **Worktree 管理**：面板内新建 worktree（branch + 路径输入，路径实时建议且默认落在 repo 同级目录避免污染父仓库 status）；创建成功/"Open Session" 自动以 worktree 路径为 cwd 开新 tab（`createNewTab(workingDirectory:)`，零扩散利用 per-agent `CodingAgentConfig.cwd`）；删除前查脏，脏 worktree destructive 二次确认 + force remove，`GitError.commandFailed` 的 stderr 弹窗展示不静默吞。
+  - **菜单栏托盘**：`SessionActivityTracker`（Cli 层）把 `AgentEvent` 折叠成四态 `SessionActivity`（idle/working/done/needsAttention；run 出错 = needsAttention，用户主动 abort = idle，窗口聚焦/切 tab 时 `markActivitySeen()` 清零），`SessionCoordinator` 经 `onActivityChange`（MainActor）发布；`MenuBarController`（NSStatusItem 环形 glyph：working 呼吸脉冲、done 绿点、needsAttention 橙点）+ roster 菜单每项一个 tab，点击激活窗口并选中该 tab。确认架构无"等用户拍板"中间态（PathGuard 直接抛错），needsAttention 暂定义为 run 出错结束。
+  - **Sparkle + 打包**：Package.swift 加 Sparkle 依赖（仅 ForgeLoopApp target）；`SPUStandardUpdaterController` 标准接法 + 代码构建主菜单（Check for Updates…）；`Scripts/build-app.sh`（universal 双切片 lipo、Sparkle.framework 嵌入 + rpath 修正、inside-out 签名、`--sign/--version/--build/--host-only` 参数化）；`packaging/Info.plist`（bundle id `com.forgeloop.app`，SUFeedURL 指向 GitHub Releases appcast）；EdDSA 密钥对已生成（私钥在 Keychain，公钥入 Info.plist，不进仓库）；`.github/workflows/release.yml` tag 触发：签名 → notarytool 公证 + staple → hdiutil DMG → generate_appcast（合并历史）→ GitHub Release 挂 DMG + appcast.xml；`docs/RELEASING.md` 记录 secrets 清单与发布步骤。
+- 验证：
+  - `swift build` OK；
+  - `swift test` 667 tests，0 failures；
+  - `swiftlint lint` 新/改文件 0 violations；
+  - `./Scripts/build-app.sh --host-only` 产出结构正确的 `ForgeLoop.app`（ad-hoc 签名，`codesign --verify --strict` 通过，Sparkle.framework 嵌入 + rpath 正确）；
+  - 真实签名/公证未经本机验证（需用户证书），首次跑 release workflow 时可能要修细节。
+- 下一步：用户配置 6 个 GitHub Secrets（见 `docs/RELEASING.md`）后打 tag 首发；git 面板 FSEvents 自动刷新与托盘 roster 彗星动画为已知遗留。
+
 ## 2026-06-19
 - P3 工程化 + 全量 trace 工程完成，发布 `v0.4.0`。
 - 新增 `ForgeLoopDiagnostics` target：

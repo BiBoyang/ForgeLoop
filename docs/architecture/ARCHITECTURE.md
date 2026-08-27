@@ -19,6 +19,7 @@
 
 ### ForgeLoopCli
 - 共享会话逻辑：`SessionCoordinator`（持有一个 `Agent` + `AttachmentStore` + `ModelStore` + `SessionStore` + `SlashCommandRegistry`）
+- 会话活动状态：`SessionActivityTracker` 把 `AgentEvent` 折叠成四态 `SessionActivity`（idle/working/done/needsAttention；run 出错 = needsAttention，用户主动 abort = idle），`aggregateSessionActivity` 按 worst-first 聚合多会话；`SessionCoordinator` 持有 tracker 并经 `onActivityChange`（MainActor）发布
 - 输入与命令路由：`PromptController`、`CodingTUI`
 - 渲染与刷新：`TranscriptRenderer`、`TUI`
 - 原则：只消费 `AgentEvent`，不直接写 Agent 内部状态
@@ -27,6 +28,14 @@
 - AppKit GUI 前端：`AppController` + `TabSession`
 - 复用 `ForgeLoopCli` 的 `SessionCoordinator` 处理提交、模型切换、附件、session 存取
 - 通过 `AgentEventRenderAdapter` 将 `AgentEvent` 渲染到 AppKit 视图
+- `AppController` 按职责拆分在多个文件中（`+Window/+Tabs/+Input/+Rendering/+ModelPicker/+MenuBar/+Updates`），窗口装配与 tab 管理分离
+- 菜单栏托盘：`MenuBarController`（NSStatusItem，环形 glyph：working 呼吸脉冲、done 绿点、needsAttention 橙点）订阅各 tab `SessionCoordinator.activity`，roster 菜单每项一个 tab（状态点 + 名称/目录，按 needsAttention > done > working > idle 排序），点击激活窗口并选中该 tab；窗口聚焦或切 tab 时 `markActivitySeen()` 清除已查看状态
+- 自动更新：Sparkle `SPUStandardUpdaterController` 标准接法（仅 ForgeLoopApp target 依赖 Sparkle）；打包/发布由 `Scripts/build-app.sh` + `.github/workflows/release.yml` 承担（签名/公证/DMG/appcast 全链路），细节见 `docs/RELEASING.md`
+- Git 面板：`GitPanelController`（NSSplitView 右侧栏，可折叠且记忆状态）只做视图承载，git 数据全部来自 `ForgeLoopGit`，不在 App 层写 git 逻辑；Changes/History/Worktrees 三段切换，worktree 的创建/打开/删除走 `WorktreeService`，创建成功或 "Open Session" 后以该 worktree 路径为 cwd 开新 tab（tab 级 cwd 粘合，`createNewTab(workingDirectory:)`）
+
+### ForgeLoopGit
+- 纯 Foundation 的 git 子进程封装与解析层（机制移植自 termio，MIT）：`GitService`（status/log/diff/commitDiff/currentBranch）、`WorktreeService`（worktree list/add/remove，remove 支持 force，`sanitizedName` 把任意分支名转成安全目录名）、`DiffParser`（unified diff → `FileDiff`/`DiffHunk`/`DiffLine`）、`GitRepositoryLocator`（向上定位仓库根）
+- 无状态 `Sendable struct`，git 输出是唯一事实源，不缓存状态；不依赖其他 ForgeLoop target，供 UI 层（git 面板）消费
 
 ## 2) ForgeLoopTUI 内部边界（Core / Adapter）
 

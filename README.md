@@ -112,6 +112,10 @@ The nightly CI workflow runs the deterministic benchmark and uploads `benchmark-
 - transcript view, input text view, model picker, and tab selector
 - slash commands (`/attach`, `/model`, `/compact`, `/save`, `/load`, etc.)
 - background task status and footer notices
+- git side panel (collapsible): Changes / History / Worktrees for the active tab's repository, with inline diff rendering
+- worktree management from the panel: create a worktree and open a session tab on it, or remove one (dirty worktrees require confirmation)
+- menu-bar tray: a status item aggregating all tabs (working pulse, done / needs-attention badges) with a roster menu that jumps to any session
+- automatic updates via Sparkle (see "Releases & Auto-Update" below)
 
 It reuses the same agent lifecycle and event rendering pipeline as the terminal frontend.
 
@@ -133,3 +137,8 @@ It reuses the same agent lifecycle and event rendering pipeline as the terminal 
 - Contribution guide: `CONTRIBUTING.md`
 - Security policy: `SECURITY.md`
 - Community expectations: `CODE_OF_CONDUCT.md`
+
+## Releases & Auto-Update
+
+- 桌面端（ForgeLoopApp）通过 Sparkle 自动更新：appcast 与已公证的 DMG 托管在 [GitHub Releases](https://github.com/BiBoyang/ForgeLoop/releases)，应用菜单里的 "Check for Updates…" 可手动触发检查
+- 发布流程与所需 secrets 见 `docs/RELEASING.md`；本地打包用 `Scripts/build-app.sh`
