@@ -536,6 +536,10 @@ private actor CountingCounter {
 /// 慢工具：先 yield 让出时间片，再检查取消状态（无固定延迟，避免测试超时）
 private struct SlowTool: Tool {
     let name: String
+    var definition: ToolDefinition {
+        ToolDefinition(name: name, description: "test double", parametersJSON: Data(#"{"type":"object","properties":{}}"#.utf8))
+    }
+
 
     func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
         // 让出时间片，模拟异步工作
@@ -552,6 +556,10 @@ private struct SlowTool: Tool {
 private struct OrderedTool: Tool {
     let counter: CountingCounter
     let name: String
+    var definition: ToolDefinition {
+        ToolDefinition(name: name, description: "test double", parametersJSON: Data(#"{"type":"object","properties":{}}"#.utf8))
+    }
+
 
     func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
         await Task.yield()
@@ -600,6 +608,10 @@ private actor SingleShotWaiter {
 
 private struct SimpleEchoTool: Tool {
     let name = "echo"
+    var definition: ToolDefinition {
+        ToolDefinition(name: name, description: "test double", parametersJSON: Data(#"{"type":"object","properties":{}}"#.utf8))
+    }
+
     func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
         ToolResult(output: "echo: \(arguments)", isError: false)
     }

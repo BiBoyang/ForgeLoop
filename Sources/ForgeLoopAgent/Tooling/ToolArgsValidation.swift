@@ -1,4 +1,5 @@
 import Foundation
+import ForgeLoopAI
 
 // MARK: - Schema Definition
 
@@ -222,5 +223,66 @@ private func typeDescription(_ type: ToolArgType) -> String {
     case .bool: return "bool"
     case .numberOrString: return "number or numeric string"
     case .stringArray: return "array of strings"
+    }
+}
+
+// MARK: - JSON Schema Mapping
+
+extension ToolArgType {
+    /// 映射为 JSON Schema 类型片段，与 `ToolArgsValidator` 的类型判定语义对齐。
+    var jsonSchema: [String: Any] {
+        switch self {
+        case .string:
+            return ["type": "string"]
+        case .int:
+            return ["type": "integer"]
+        case .bool:
+            // 校验器额外容忍 "true"/"false" 字符串属于宽松兼容；对模型只声明 boolean。
+            return ["type": "boolean"]
+        case .numberOrString:
+            // 与校验器一致：数字，或可解析为 Int 的数字字符串。
+            return ["anyOf": [
+                ["type": "number"],
+                ["type": "string", "pattern": "^-?\\d+$"]
+            ]]
+        case .stringArray:
+            return ["type": "array", "items": ["type": "string"]]
+        }
+    }
+}
+
+extension ToolArgsSchema {
+    /// 映射为 JSON Schema 对象（供 provider 请求体 `tools` 字段使用）。
+    /// 与 `ToolArgsValidator` 语义一致：required 一致；校验器拒绝未知字段，故 `additionalProperties: false`。
+    public func jsonSchema() -> [String: Any] {
+        var properties: [String: Any] = [:]
+        for field in fields {
+            properties[field.name] = field.type.jsonSchema
+        }
+        var schema: [String: Any] = [
+            "type": "object",
+            "properties": properties,
+            "additionalProperties": false
+        ]
+        let required = requiredFieldNames
+        if !required.isEmpty {
+            schema["required"] = required
+        }
+        return schema
+    }
+}
+
+extension ToolDefinition {
+    /// 由 `ToolArgsSchema` 生成工具定义。`jsonSchema()` 仅含 JSON 可序列化值，正常路径必然成功；
+    /// 兜底退化为空 object schema 而不是崩溃，避免单个工具的 schema 问题拖垮整个注册表。
+    public static func make(name: String, description: String, argsSchema: ToolArgsSchema) -> ToolDefinition {
+        if let definition = try? ToolDefinition(name: name, description: description, parameters: argsSchema.jsonSchema()) {
+            return definition
+        }
+        return ToolDefinition(
+            name: name,
+            description: description,
+            parametersJSON: Data(#"{"type":"object","properties":{}}"#.utf8)
+        )
     }
 }

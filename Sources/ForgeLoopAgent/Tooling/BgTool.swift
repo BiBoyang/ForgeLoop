@@ -1,13 +1,21 @@
 import Foundation
 import ForgeLoopAI
 
-private let bgToolSchema = ToolArgsSchema(fields: [
+let bgToolSchema = ToolArgsSchema(fields: [
     ToolArgField(name: "command", type: .string, required: true),
     ToolArgField(name: "timeoutMs", type: .int, required: false)
 ])
 
 public struct BgTool: Tool {
     public let name = "bg"
+
+    public var definition: ToolDefinition {
+        ToolDefinition.make(
+            name: name,
+            description: "Start `command` as a background task (via /bin/sh -c) and return its task id immediately without waiting for completion. `timeoutMs` optionally bounds how long it may run. Poll status and captured output with bg_status.",
+            argsSchema: bgToolSchema
+        )
+    }
     private let manager: BackgroundTaskManager
     private let onComplete: (@Sendable (BackgroundTaskRecord) async -> Void)?
 

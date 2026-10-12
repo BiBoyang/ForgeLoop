@@ -50,6 +50,9 @@ public struct ToolResult: Sendable {
 
 public protocol Tool: Sendable {
     var name: String { get }
+    /// 面向模型的工具定义（name + description + 参数 JSON Schema），
+    /// 由 AgentLoop 经 `StreamOptions.tools` 传给 provider。
+    var definition: ToolDefinition { get }
     func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult
 }
 
@@ -130,6 +133,13 @@ public final class ToolExecutor: @unchecked Sendable {
 
     public var availableToolNames: [String] {
         lock.withLock { Array(tools.keys).sorted() }
+    }
+
+    /// 当前已注册工具定义的只读快照（按 name 排序，保证请求体确定性）。
+    public var toolDefinitions: [ToolDefinition] {
+        lock.withLock {
+            tools.values.map(\.definition).sorted { $0.name < $1.name }
+        }
     }
 }
 

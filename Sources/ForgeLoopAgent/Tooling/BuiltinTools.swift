@@ -1,12 +1,20 @@
 import Foundation
 import ForgeLoopAI
 
-private let readToolSchema = ToolArgsSchema(fields: [
+let readToolSchema = ToolArgsSchema(fields: [
     ToolArgField(name: "path", type: .string, required: true)
 ])
 
 public struct ReadTool: Tool {
     public let name = "read"
+
+    public var definition: ToolDefinition {
+        ToolDefinition.make(
+            name: name,
+            description: "Read the full contents of a UTF-8 text file. `path` is resolved against the working directory; paths outside it are rejected. Fails on directories—use `ls` to list a directory.",
+            argsSchema: readToolSchema
+        )
+    }
 
     public init() {}
 
@@ -42,13 +50,21 @@ public struct ReadTool: Tool {
     }
 }
 
-private let writeToolSchema = ToolArgsSchema(fields: [
+let writeToolSchema = ToolArgsSchema(fields: [
     ToolArgField(name: "path", type: .string, required: true),
     ToolArgField(name: "content", type: .string, required: true)
 ])
 
 public struct WriteTool: Tool {
     public let name = "write"
+
+    public var definition: ToolDefinition {
+        ToolDefinition.make(
+            name: name,
+            description: "Write text `content` to `path`, creating parent directories as needed and overwriting any existing file. Refuses if `path` is an existing directory. `path` must stay within the working directory.",
+            argsSchema: writeToolSchema
+        )
+    }
 
     public init() {}
 

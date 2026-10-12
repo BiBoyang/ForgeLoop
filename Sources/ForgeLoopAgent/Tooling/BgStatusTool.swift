@@ -1,12 +1,20 @@
 import Foundation
 import ForgeLoopAI
 
-private let bgStatusToolSchema = ToolArgsSchema(fields: [
+let bgStatusToolSchema = ToolArgsSchema(fields: [
     ToolArgField(name: "id", type: .string, required: false)
 ])
 
 public struct BgStatusTool: Tool {
     public let name = "bg_status"
+
+    public var definition: ToolDefinition {
+        ToolDefinition.make(
+            name: name,
+            description: "Report status and captured output of background tasks started with `bg`. With `id`, report only that task; without it, report all known tasks.",
+            argsSchema: bgStatusToolSchema
+        )
+    }
     private let manager: BackgroundTaskManager
 
     public init(manager: BackgroundTaskManager) {

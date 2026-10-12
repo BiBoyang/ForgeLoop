@@ -63,6 +63,8 @@ public enum AgentLoop {
                 let options = StreamOptions(
                     apiKey: resolved,
                     cancellation: cancellation,
+                    // 每轮取当前快照：轮次间新注册的工具会反映在下一轮请求中。
+                    tools: config.toolExecutor?.toolDefinitions,
                     traceContext: config.traceContext,
                     diagnostics: diagnostics
                 )

@@ -5,6 +5,10 @@ import XCTest
 
 private struct EchoTool: Tool {
     let name = "echo"
+    var definition: ToolDefinition {
+        ToolDefinition(name: name, description: "test double", parametersJSON: Data(#"{"type":"object","properties":{}}"#.utf8))
+    }
+
     func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
         ToolResult(output: "echo: \(arguments)", isError: false)
     }

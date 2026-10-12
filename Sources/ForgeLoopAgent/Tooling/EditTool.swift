@@ -1,7 +1,7 @@
 import Foundation
 import ForgeLoopAI
 
-private let editToolSchema = ToolArgsSchema(fields: [
+let editToolSchema = ToolArgsSchema(fields: [
     ToolArgField(name: "path", type: .string, required: true),
     ToolArgField(name: "oldText", type: .string, required: true),
     ToolArgField(name: "newText", type: .string, required: true),
@@ -13,6 +13,14 @@ private let editToolSchema = ToolArgsSchema(fields: [
 
 public struct EditTool: Tool {
     public let name = "edit"
+
+    public var definition: ToolDefinition {
+        ToolDefinition.make(
+            name: name,
+            description: "Replace `oldText` with `newText` in the file at `path` and return a diff summary. Without disambiguation the first match is replaced; use `anchor` to search only after its first occurrence, `lineNumber` to restrict to a single line, or replaceAll=true to replace every match. caseInsensitive relaxes matching. A backup is written before mutation. `path` must be within the working directory.",
+            argsSchema: editToolSchema
+        )
+    }
     public let maxFileSize: Int
     public let maxDiffPreviewChars: Int
 

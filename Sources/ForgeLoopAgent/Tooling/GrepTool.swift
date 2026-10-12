@@ -1,13 +1,21 @@
 import Foundation
 import ForgeLoopAI
 
-private let grepToolSchema = ToolArgsSchema(fields: [
+let grepToolSchema = ToolArgsSchema(fields: [
     ToolArgField(name: "path", type: .string, required: true),
     ToolArgField(name: "pattern", type: .string, required: true)
 ])
 
 public struct GrepTool: Tool {
     public let name = "grep"
+
+    public var definition: ToolDefinition {
+        ToolDefinition.make(
+            name: name,
+            description: "Search the file or directory tree at `path` for lines containing `pattern` (case-insensitive literal substring, not regex), returning path:line:text matches. Result count and per-file size are capped; hidden files and symlinks are skipped. `path` must be within the working directory.",
+            argsSchema: grepToolSchema
+        )
+    }
     public let maxResults: Int
     public let maxFileSize: Int
 

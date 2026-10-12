@@ -2,7 +2,7 @@ import Foundation
 import ForgeLoopAI
 import ForgeLoopDiagnostics
 
-private let agentToolSchema = ToolArgsSchema(fields: [
+let agentToolSchema = ToolArgsSchema(fields: [
     ToolArgField(name: "description", type: .string, required: true),
     ToolArgField(name: "prompt", type: .string, required: true),
     ToolArgField(name: "subagent_type", type: .string, required: false)
@@ -11,6 +11,28 @@ private let agentToolSchema = ToolArgsSchema(fields: [
 /// Tool that delegates a task to a specialized subagent.
 public struct SubagentTool: Tool {
     public let name = "agent"
+
+    /// 描述与 subagent_type 的 enum 随当前可用 subagent 列表动态生成，
+    /// 让模型只看到真实可选的类型。
+    public var definition: ToolDefinition {
+        let available = subagents.map(\.name)
+        var description = "Delegate a self-contained task to a subagent and return its final text report. The subagent runs independently with its own tool set and cannot ask follow-up questions—make `prompt` complete and specific."
+        if !available.isEmpty {
+            description += " Available subagent_type values: \(available.joined(separator: ", ")) (default: general)."
+        }
+        var schema = agentToolSchema.jsonSchema()
+        if !available.isEmpty,
+           var properties = schema["properties"] as? [String: Any],
+           var subagentType = properties["subagent_type"] as? [String: Any] {
+            subagentType["enum"] = available
+            properties["subagent_type"] = subagentType
+            schema["properties"] = properties
+        }
+        if let definition = try? ToolDefinition(name: name, description: description, parameters: schema) {
+            return definition
+        }
+        return ToolDefinition.make(name: name, description: description, argsSchema: agentToolSchema)
+    }
 
     private let subagents: [SubagentDefinition]
     private let parentConfig: CodingAgentConfig

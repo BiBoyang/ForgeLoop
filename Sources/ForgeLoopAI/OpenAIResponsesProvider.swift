@@ -190,7 +190,22 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
             input: Self.buildInput(from: context)
         )
 
-        guard let body = try? JSONEncoder().encode(requestBody) else {
+        // 经 JSONSerialization 往返一次，以便注入无法直接 Encodable 的 tools（parameters 为任意 JSON）。
+        guard
+            let encoded = try? JSONEncoder().encode(requestBody),
+            var bodyObject = try? JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        else {
+            spanError.error = TraceError(type: "ProviderError", message: "Failed to encode request body")
+            await endWithError(reason: .error, message: "Failed to encode request body")
+            return
+        }
+
+        // Responses API 的 function tool 为扁平结构：{type,name,description,parameters}。
+        if let tools = options?.tools, !tools.isEmpty {
+            bodyObject["tools"] = Self.buildTools(tools)
+        }
+
+        guard let body = try? JSONSerialization.data(withJSONObject: bodyObject) else {
             spanError.error = TraceError(type: "ProviderError", message: "Failed to encode request body")
             await endWithError(reason: .error, message: "Failed to encode request body")
             return
@@ -457,6 +472,19 @@ public final class OpenAIResponsesProvider: APIProvider, @unchecked Sendable {
                 try container.encode(callId, forKey: .callId)
                 try container.encode(output, forKey: .output)
             }
+        }
+    }
+
+    private static func buildTools(_ tools: [ToolDefinition]) -> [[String: Any]] {
+        tools.map { tool in
+            var dict: [String: Any] = ["type": "function", "name": tool.name]
+            if !tool.description.isEmpty {
+                dict["description"] = tool.description
+            }
+            if let params = try? JSONSerialization.jsonObject(with: tool.parametersJSON) {
+                dict["parameters"] = params
+            }
+            return dict
         }
     }
 

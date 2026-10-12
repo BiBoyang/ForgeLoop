@@ -5,6 +5,10 @@ import XCTest
 
 private struct EchoTool: Tool {
     let name = "echo"
+    var definition: ToolDefinition {
+        ToolDefinition(name: name, description: "test double", parametersJSON: Data(#"{"type":"object","properties":{}}"#.utf8))
+    }
+
     func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
         ToolResult(output: "echo: \(arguments)", isError: false)
     }
@@ -12,6 +16,10 @@ private struct EchoTool: Tool {
 
 private struct FailTool: Tool {
     let name = "fail"
+    var definition: ToolDefinition {
+        ToolDefinition(name: name, description: "test double", parametersJSON: Data(#"{"type":"object","properties":{}}"#.utf8))
+    }
+
     func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
         ToolResult(output: "always fails", isError: true)
     }
@@ -27,6 +35,11 @@ private actor CountingEchoCounter {
 
 private struct CountingEchoTool: Tool {
     let name = "counting_echo"
+
+    var definition: ToolDefinition {
+        ToolDefinition(name: name, description: "test double", parametersJSON: Data(#"{"type":"object","properties":{}}"#.utf8))
+    }
+
     private let counter: CountingEchoCounter
 
     init(counter: CountingEchoCounter) {

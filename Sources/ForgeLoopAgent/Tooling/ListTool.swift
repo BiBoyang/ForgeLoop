@@ -1,12 +1,20 @@
 import Foundation
 import ForgeLoopAI
 
-private let listToolSchema = ToolArgsSchema(fields: [
+let listToolSchema = ToolArgsSchema(fields: [
     ToolArgField(name: "path", type: .string, required: false)
 ])
 
 public struct ListTool: Tool {
     public let name = "ls"
+
+    public var definition: ToolDefinition {
+        ToolDefinition.make(
+            name: name,
+            description: "List the entries of the directory at `path` (default: the working directory). `path` must be within the working directory.",
+            argsSchema: listToolSchema
+        )
+    }
 
     public init() {}
 

@@ -90,6 +90,64 @@ data: {"type":"response.completed"}
         XCTAssertEqual(object["model"] as? String, "gpt-4.1-mini")
         XCTAssertEqual(object["stream"] as? Bool, true)
         XCTAssertEqual(input.count, 3)
+        XCTAssertNil(object["tools"], "no tools configured → request body must not contain a tools key")
+    }
+
+    func testResponsesRequestBodyIncludesTools() async throws {
+        let payload = """
+event: response.completed
+data: {"type":"response.completed"}
+
+"""
+        let client = StubHTTPClient(statusCode: 200, payload: payload)
+        let provider = OpenAIResponsesProvider(defaultAPIKey: "sk-test", httpClient: client)
+
+        let toolDef = try ToolDefinition(
+            name: "read",
+            description: "Read a file",
+            parameters: [
+                "type": "object",
+                "properties": ["path": ["type": "string"]],
+                "required": ["path"],
+                "additionalProperties": false
+            ]
+        )
+
+        let stream = await provider.stream(
+            model: testModel,
+            context: testContext,
+            options: StreamOptions(tools: [toolDef])
+        )
+        _ = await stream.result()
+
+        guard let request = await client.capturedRequest(), let body = request.body else {
+            XCTFail("Expected captured request with body")
+            return
+        }
+        guard let object = try JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+            XCTFail("Expected JSON body object")
+            return
+        }
+
+        // Responses API 规范：扁平 function tool 结构 {type,name,description,parameters}，
+        // 不是 Chat Completions 的嵌套 "function" 结构。
+        guard let tools = object["tools"] as? [[String: Any]] else {
+            XCTFail("Expected tools array in request body")
+            return
+        }
+        XCTAssertEqual(tools.count, 1)
+        XCTAssertEqual(tools[0]["type"] as? String, "function")
+        XCTAssertEqual(tools[0]["name"] as? String, "read")
+        XCTAssertEqual(tools[0]["description"] as? String, "Read a file")
+        XCTAssertNil(tools[0]["function"], "Responses API uses flattened tool objects, not nested function")
+
+        guard let parameters = tools[0]["parameters"] as? [String: Any] else {
+            XCTFail("Expected parameters object")
+            return
+        }
+        XCTAssertEqual(parameters["type"] as? String, "object")
+        XCTAssertEqual(parameters["required"] as? [String], ["path"])
+        XCTAssertEqual(parameters["additionalProperties"] as? Bool, false)
     }
 
     func testResponsesErrorEventEndsWithError() async throws {

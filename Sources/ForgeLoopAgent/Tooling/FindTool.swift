@@ -1,13 +1,21 @@
 import Foundation
 import ForgeLoopAI
 
-private let findToolSchema = ToolArgsSchema(fields: [
+let findToolSchema = ToolArgsSchema(fields: [
     ToolArgField(name: "path", type: .string, required: false),
     ToolArgField(name: "namePattern", type: .string, required: false)
 ])
 
 public struct FindTool: Tool {
     public let name = "find"
+
+    public var definition: ToolDefinition {
+        ToolDefinition.make(
+            name: name,
+            description: "Find files and directories under `path` (default \".\") whose names match the glob `namePattern` (default \"*\"; case-insensitive; * and ? wildcards). Depth and result count are capped; symlinks are not followed. `path` must be a directory within the working directory.",
+            argsSchema: findToolSchema
+        )
+    }
     public let maxDepth: Int
     public let maxResults: Int
     public let maxFilesScanned: Int

@@ -2,7 +2,7 @@ import Foundation
 import ForgeLoopAI
 import ForgeLoopSandbox
 
-private let bashToolSchema = ToolArgsSchema(fields: [
+let bashToolSchema = ToolArgsSchema(fields: [
     ToolArgField(name: "command", type: .string, required: true),
     ToolArgField(name: "args", type: .stringArray, required: false),
     ToolArgField(name: "timeoutMs", type: .numberOrString, required: false),
@@ -19,6 +19,14 @@ public typealias SandboxEscalationHandler = @Sendable (String, String) async -> 
 /// 批准 → 非沙箱重跑一次（仅一次，不循环）；拒绝/handler 缺失 → 原失败结果回灌并附提示。
 public struct BashTool: Tool {
     public let name = "bash"
+
+    public var definition: ToolDefinition {
+        ToolDefinition.make(
+            name: name,
+            description: "Run a shell command in the working directory. Without `args`, `command` runs via /bin/sh -c (pipes and redirections work); with `args`, the executable is run directly. Foreground mode waits for completion and returns output, bounded by `timeoutMs` (milliseconds). mode=\"background\" starts a background task instead (`args` not allowed); poll it with bg_status. Commands may run sandboxed and can be denied.",
+            argsSchema: bashToolSchema
+        )
+    }
     public let defaultTimeoutMs: Int
     private let manager: BackgroundTaskManager?
     /// 沙箱策略。nil = 不包装（默认，保持既有调用方行为）。
