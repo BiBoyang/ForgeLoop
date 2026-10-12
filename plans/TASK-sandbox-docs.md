@@ -1,6 +1,6 @@
 # TASK-sandbox-docs：文档同步与移植笔记
 
-- 状态：pending
+- 状态：done
 - 依赖：TASK-sandbox-approval
 - 下游：无（收尾）
 

@@ -16,6 +16,7 @@
 - 事件总线：`AgentEvent`
 - 工具执行：`ToolExecutor`、`Read/Write/Bash` 等
 - 队列与取消：`PendingMessageQueue`、`CancellationHandle`
+- 命令执行沙箱化：`ProcessRunner` 接受可选 `PermissionProfile`，经 `SandboxTransform` 统一包装（见 §4b）；依赖 `ForgeLoopSandbox`
 
 ### ForgeLoopCli
 - 共享会话逻辑：`SessionCoordinator`（持有一个 `Agent` + `AttachmentStore` + `ModelStore` + `SessionStore` + `SlashCommandRegistry`）
@@ -36,6 +37,16 @@
 ### ForgeLoopGit
 - 纯 Foundation 的 git 子进程封装与解析层（机制移植自 termio，MIT）：`GitService`（status/log/diff/commitDiff/currentBranch）、`WorktreeService`（worktree list/add/remove，remove 支持 force，`sanitizedName` 把任意分支名转成安全目录名）、`DiffParser`（unified diff → `FileDiff`/`DiffHunk`/`DiffLine`）、`GitRepositoryLocator`（向上定位仓库根）
 - 无状态 `Sendable struct`，git 输出是唯一事实源，不缓存状态；不依赖其他 ForgeLoop target，供 UI 层（git 面板）消费
+
+### ForgeLoopSandbox
+- macOS seatbelt 沙箱的策略与包装层（移植自 Codex `sandboxing` crate，映射见 `notes/codex-sandbox-porting-notes.md`）
+- 两段式设计（策略 → transform），全部无状态纯函数/`Sendable` 值类型，零 IO 可单测：
+  - `PermissionProfile`（`Codable & Sendable`）：fs 维度 `readOnly / workspaceWrite(writableRoots:) / fullAccess` × network 维度 `disabled / enabled`
+  - `SeatbeltProfileRenderer`：纯函数 profile → `.sbpl` 文本；`(deny default)` 起手；writableRoots 经 `realpath(3)` canonicalize（`/var` firmlink 陷阱，见 `notes/sandbox-spike-report.md` §4）；base 骨架源自 spike 实测模板
+  - `SandboxTransform`：纯函数 (command, args, profile) → argv；`fullAccess + network enabled` 原样透传；`/usr/bin/sandbox-exec` 绝对路径硬编码（防 PATH 注入）
+  - `SandboxSupport`：`/usr/bin/sandbox-exec` 存在性检测；非 macOS 明确报不支持
+  - `ApprovalPolicy`（`never / onFailure`，默认 onFailure）与 `SandboxDenialHeuristic`（纯函数 (exitCode, stderr) → Bool，锚点：非零退出 + `Operation not permitted` EPERM 文本）
+- 不依赖其他 ForgeLoop target；`ForgeLoopAgent` 依赖本模块
 
 ## 2) ForgeLoopTUI 内部边界（Core / Adapter）
 
@@ -114,6 +125,27 @@
 - `.int`：整数（底层用 `CFGetTypeID==CFNumberGetTypeID()` 排除 `__NSCFBoolean` 桥接污染）
 - `.bool`：布尔（底层用 `CFGetTypeID==CFBooleanGetTypeID()` 精确识别）
 - `.numberOrString`：数字或数字字符串（如 `timeoutMs`，兼容 `15000` 与 `"15000"` 两种输入）
+
+## 4b) 命令执行沙箱与审批升级链路
+
+所有命令执行（前台 `BashTool`、`BackgroundTaskManager` 后台任务、subagent 工具链）统一经 `ProcessRunner` + `SandboxTransform` 包装，无裸奔通道。安全职责在 OS 沙箱（seatbelt），`ShellCommandAuditor` 已移除，`bash` 工具无 `args` 时经 `/bin/sh -c` 执行，管道/重定向/复合命令等完整 shell 能力放开。
+
+### 默认策略与构造校验
+- 默认 profile：`workspaceWrite(writableRoots: [cwd])` + `network: .disabled`（对齐 Codex 默认 workspace-write 断网）。
+- `SandboxProfileFactory`（位于 `CodingAgentBuilder.swift`，调用方而非纯函数层做策略校验）：writable root 必须存在、为目录、非 symlink、不含控制字符（防 sbpl 注入）；全部拒绝时降级 `readOnly`；拒绝项经 `Diagnostics.log` 记录。
+- 配置口子（`CodingAgentConfig`）：`sandboxProfile`（可切 `fullAccess`）、`approvalPolicy`、`escalationHandler`。
+
+### 审批升级链路（对齐 Codex exec.rs 两段式）
+1. 沙箱内命令失败，`SandboxDenialHeuristic` 判定疑似沙箱拒绝（非零退出 + stderr 含 `Operation not permitted`；curl exit 6 类网络拒绝 v1 不触发）。
+2. `policy == .onFailure` 且存在 `escalationHandler` → 调 handler（带命令与拒绝原因）。
+3. 批准 → `ProcessRunner(profile: nil)` 非沙箱重跑一次（直调不递归，结构上保证仅一次）；拒绝 / handler 缺失 → 原失败结果回灌模型并附 `[sandbox]` 提示。
+4. CLI 审批 UI：`CodingTUISession` 复用 ListPicker 交互形态（`允许一次 / 拒绝`，默认落"拒绝"，Esc=拒绝），经 `SandboxApprovalBridge` 阻塞等待用户输入；仅交互式 TTY 注入 handler（非 TTY 与 AppKit 默认 handler=nil，等价 never，fail-closed）。
+5. 等待后与重跑后均复查 cancellation，不破坏事件闭环。
+
+### 语义注记（Review 移交，长期有效）
+- **subagent 沙箱语义**：实际是 `childConfig.sandboxProfile override ?? SandboxProfileFactory.makeDefault(childCwd)`，**并非字面透传父 profile**——父 `fullAccess` 不会泄漏给子（fail-closed），对齐 Codex"对父的批准不构成对子的一般许可"。
+- **已知限制**：代码路径 abort 不会 resume 挂起的审批 continuation（bash 调用悬置直至用户操作）；用户 Esc 路径已覆盖"abort 可中断等待"。
+- **验证边界**：网络断网语义的端到端验证仅有 spike 层证据（本机代理 env 透传会污染判定，集成测试豁免网络项）；文件写拒绝特征（exit 1 + `Operation not permitted`）有集成测试覆盖。
 
 ## 5) 全局不变量
 - 每条 assistant 回复事件闭环：

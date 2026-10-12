@@ -40,6 +40,29 @@ If you want to tune this app-level behavior, update `forgeLoopMarkdownRenderOpti
 - attachment commands are available: `/attach`, `/attachments [clear]`, `/detach`
 - auto-compact feedback appears as footer notice, and recent compaction state is shown via status badge
 
+## Sandboxing
+
+All shell command execution (foreground `bash` tool, background tasks, and subagent tool chains) runs under the macOS seatbelt sandbox via `/usr/bin/sandbox-exec`, with policies rendered by the `ForgeLoopSandbox` module:
+
+- **Default policy**: `workspaceWrite(cwd)` + network disabled — commands can read the filesystem and write inside the working directory, but writes outside it and network access are denied by the OS.
+- **Full shell capability**: the old `ShellCommandAuditor` metacharacter gate is removed; pipes, redirections, and compound commands (`ls | head`, `a && b`) all work — safety is enforced by the sandbox instead of string filtering.
+- **Approval escalation**: when a sandboxed command fails with a sandbox denial (EPERM), the CLI shows a blocking picker (`允许一次 / 拒绝`, defaulting to deny). Approving reruns that command once without the sandbox; denying feeds the failure back to the model. Non-interactive contexts (non-TTY, AppKit) never prompt and fail closed.
+- **Subagents are sandboxed too**: a subagent gets its own default policy derived from its cwd — a parent's `fullAccess` override never leaks into children (fail-closed).
+
+Configuration seams on `CodingAgentConfig`:
+
+```swift
+CodingAgentConfig(
+    model: model,
+    cwd: cwd,
+    sandboxProfile: PermissionProfile(fileSystem: .fullAccess, network: .enabled), // opt out
+    approvalPolicy: .never,        // or .onFailure (default)
+    escalationHandler: nil         // CLI wires the interactive picker when TTY
+)
+```
+
+For the architecture invariants and known limitations, see `docs/architecture/ARCHITECTURE.md` §4b; for the Codex → ForgeLoop porting map, see `notes/codex-sandbox-porting-notes.md`.
+
 ## Diagnostics and Tracing
 
 `ForgeLoopDiagnostics` provides a unified observability facade used across all layers:

@@ -1,5 +1,31 @@
 # Review Log
 
+## 2026-10-12（沙箱化批次：Codex seatbelt 移植，四任务全 Approved）
+
+- `TASK-sandbox-spike` 评审结论：`Approved`（[Review Card](../../reviews/REVIEW-sandbox-spike-2026-10-12.md)）
+  - seatbelt 探针（`Scripts/sandbox-spike/probe.swift`）一条命令跑完 10 项验证矩阵，PASS 10/10；
+  - 产出拒绝特征第一手数据（文件写 = exit 1 + `Operation not permitted`；网络 = curl exit 6 + `Could not resolve host`）与 base profile 模板（`notes/sandbox-spike-report.md`）；
+  - 关键踩坑：`/var` firmlink 必须 `realpath(3)`（`resolvingSymlinksInPath` 无效）、父进程代理 env 透传污染网络测试。
+
+- `TASK-sandbox-core` 评审结论：`Approved`（[Review Card](../../reviews/REVIEW-sandbox-core-2026-10-12.md)）
+  - 新增 `ForgeLoopSandbox` 模块：`PermissionProfile`（Codable & Sendable 两维度策略）、`SeatbeltProfileRenderer`（纯函数渲染，`(deny default)` 起手，writableRoots 经 realpath canonicalize）、`SandboxTransform`（纯函数 argv 包装，`/usr/bin/sandbox-exec` 绝对路径硬编码）、`SandboxSupport`；
+  - 22 用例（三档渲染快照/多可写根/空格引号转义/firmlink 实测/Codable/Sendable）；全套 2063 tests 无回归。
+
+- `TASK-sandbox-wire` 评审结论：`Approved`（[Review Card](../../reviews/REVIEW-sandbox-wire-2026-10-12.md)）
+  - 执行链路统一沙箱化：`ProcessRunner` 增加可选 `profile` 形参（包装复杂度下沉，调用方只传 profile）；前台 `BashTool` + `BackgroundTaskManager` 全覆盖；
+  - `ShellCommandAuditor` 删除，放开完整 shell 能力（管道/重定向/复合命令）；
+  - `SandboxProfileFactory`：writable root 校验（存在/目录/非 symlink/无控制字符），全拒降级 readOnly；默认 `workspaceWrite(cwd)` + 断网；
+  - 新增 SandboxIntegrationTests 13 用例；`swift test --filter Agent` 222/222。
+
+- `TASK-sandbox-approval` 评审结论：`Approved`（[Review Card](../../reviews/REVIEW-sandbox-approval-2026-10-12.md)）
+  - 拒绝检测与升级：`SandboxDenialHeuristic`（非零退出 + EPERM 文本锚点，网络拒绝 v1 不触发）+ `ApprovalPolicy`（never/onFailure）；
+  - 升级链路：批准 → 非沙箱重跑一次（直调不递归）；拒绝/handler 缺失 → 失败回灌 + `[sandbox]` 提示；CLI 复用 ListPicker 阻塞审批（默认落"拒绝"，Esc=拒绝，非 TTY/AppKit 不注入 handler）；
+  - Owner 批准扩 scope：subagent 裸奔通道关闭（`override ?? 默认构造`，父 fullAccess 不泄漏给子，fail-closed）；
+  - 新增 14 用例；`swift test --filter Agent` 229/229，全套回归 exit 0。
+
+- 语义注记（进架构文档 §4b）：subagent 沙箱为 fail-closed 默认构造而非字面透传；代码路径 abort 不 resume 挂起的审批 continuation（Esc 已覆盖，列为已知限制）；网络断网端到端验证仅 spike 层证据（集成测试豁免，代理 env 污染）。
+- 移植沉淀：`notes/codex-sandbox-porting-notes.md`（Codex 概念映射表 + 裁剪决策 + 踩坑出处）。
+
 ## 2026-08-28
 - ForgeLoopApp 桌面化批次完成（git 面板 / worktree 管理 / 菜单栏托盘 / Sparkle 自动更新 + 打包流水线）：
   - **ForgeLoopGit 新模块**：纯 Foundation 的 git 子进程封装与解析层（机制移植自 termio，MIT）：`GitService`（status/log/diff/commitDiff/currentBranch）、`WorktreeService`（list/add/remove，remove 支持 force，`sanitizedName` 名称清洗）、`DiffParser`、`GitRepositoryLocator`；无状态 `Sendable struct`，不依赖其他 target。
