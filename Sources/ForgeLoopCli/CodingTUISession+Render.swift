@@ -15,6 +15,32 @@ func shouldCoalesceWithRenderLoop(
     priority == .normal && frame.live.isEmpty && frame.cursorOffset == nil && frame.cursorPlacement == nil
 }
 
+/// 流式期间审批 overlay 的渲染计划（纯函数 seam，单测锁定真值表）。
+struct StreamingApprovalRenderPlan: Equatable {
+    /// 先输出空帧 diff 清除屏上 picker live 帧（picker 已关闭或流式已结束时）。
+    var eraseOverlay: Bool
+    /// transcript 增量 append 前需复位 retained（picker live 帧 retained 时直接 append 会把新行写到 picker 下方）。
+    var resetRetainedBeforeAppend: Bool
+    /// 渲染含 picker 的 footer 帧（streaming + 审批活跃 → 不随 early-return 丢弃 footer）。
+    var renderApprovalFooter: Bool
+}
+
+func planStreamingApprovalRender(
+    isStreaming: Bool,
+    approvalActive: Bool,
+    overlayActive: Bool
+) -> StreamingApprovalRenderPlan {
+    // picker 已关闭或流式已结束：先擦除屏上 overlay，后续 append/全帧重绘才不会与残留 picker 错位。
+    let eraseOverlay = overlayActive && (!approvalActive || !isStreaming)
+    // 擦除后 overlay 视同不存在。
+    let effectiveOverlay = overlayActive && !eraseOverlay
+    return StreamingApprovalRenderPlan(
+        eraseOverlay: eraseOverlay,
+        resetRetainedBeforeAppend: isStreaming && approvalActive && effectiveOverlay,
+        renderApprovalFooter: isStreaming && approvalActive
+    )
+}
+
 extension CodingTUISession {
     func refreshQueueLines() async {
         if let bgManager = agent.backgroundTaskManager {
@@ -149,6 +175,19 @@ extension CodingTUISession {
             hasPrintedStaticHeader = true
         }
 
+        // 审批 overlay 状态机：streaming 期间 picker 以 live 帧叠加渲染，
+        // picker 关闭或流式结束时先擦除，保证 transcript append / 全帧重绘不与残留 picker 错位
+        // （transcript 不丢行、picker 不重印）。
+        let approvalPlan = planStreamingApprovalRender(
+            isStreaming: agent.state.isStreaming,
+            approvalActive: activeApproval != nil,
+            overlayActive: approvalOverlayActive
+        )
+        if approvalPlan.eraseOverlay {
+            tui.requestRender(lines: [])
+            approvalOverlayActive = false
+        }
+
         if agent.state.isStreaming {
             if !appendModeActive {
                 tui.requestRender(lines: [])
@@ -159,6 +198,23 @@ extension CodingTUISession {
                 transcript: renderer.transcriptLines,
                 activeRange: renderer.activeStreamingRange
             )
+
+            if approvalPlan.renderApprovalFooter {
+                // 流式期间的审批 picker 必须可见可交互：transcript 增量照常 append，
+                // footer（picker 帧）照常渲染，不再随 streaming early-return 被丢弃。
+                if !appendedTranscriptLines.isEmpty {
+                    if approvalPlan.resetRetainedBeforeAppend {
+                        // picker live 帧 retained 时直接 append 会把新行写到 picker 下方；
+                        // 复位后由下面的 footer 渲染全量重绘 picker，保持上下顺序正确。
+                        tui.resetRetainedFrame()
+                    }
+                    tui.appendFrame(lines: appendedTranscriptLines)
+                }
+                outputFrame(footerRender.frame, priority: priority)
+                approvalOverlayActive = true
+                return
+            }
+
             if !appendedTranscriptLines.isEmpty {
                 tui.appendFrame(lines: appendedTranscriptLines)
             }

@@ -62,6 +62,8 @@ final class CodingTUISession {
 
     var hasPrintedStaticHeader = false
     var appendModeActive = false
+    /// 流式期间审批 picker 是否正以 live 帧叠加显示（erase/reset 决策依据）。
+    var approvalOverlayActive = false
     var transcriptAppendState = StreamingTranscriptAppendState()
     var currentAssistantBlockID: String?
 
@@ -187,21 +189,34 @@ final class CodingTUISession {
     /// 同时只允许一个审批等待（单 active run + 顺序工具执行下本就不会并发，兜底拒绝）。
     func requestSandboxApproval(command: String, reason: String) async -> Bool {
         if activeApproval != nil { return false }
-        return await withCheckedContinuation { continuation in
-            let truncatedCommand = command.count > 100 ? String(command.prefix(100)) + "…" : command
-            let picker = ListPickerState(
-                title: "沙箱拒绝了这次命令，是否提升权限重跑？",
-                subtitle: "\(truncatedCommand)\n原因: \(reason)",
-                items: [
-                    ListPickerItem(id: "allow", title: "允许一次", subtitle: "本次以非沙箱方式重跑（仅此一次）"),
-                    ListPickerItem(id: "deny", title: "拒绝", subtitle: "按失败处理并回灌模型"),
-                ],
-                selectedIndex: 1, // 默认落在「拒绝」，安全优先
-                footer: "(↑↓ 选择，Enter 确认，Esc 拒绝)"
-            )
+        await diagnostics.log.log(level: .info, message: "sandbox_approval.request", attributes: [
+            "command_preview": .string(String(command.prefix(60))),
+        ])
+        let approved: Bool = await withCheckedContinuation { continuation in
+            let picker = Self.makeApprovalPicker(command: command, reason: reason)
             activeApproval = ApprovalPrompt(picker: picker, continuation: continuation)
             renderFrame(priority: .immediate)
         }
+        await diagnostics.log.log(level: .info, message: "sandbox_approval.resolved", attributes: [
+            "approved": .bool(approved),
+        ])
+        return approved
+    }
+
+    /// 构造审批 picker（提取为静态工厂，供 requestSandboxApproval 与渲染层测试复用）。
+    /// 默认选中「拒绝」，安全优先。
+    static func makeApprovalPicker(command: String, reason: String) -> ListPickerState {
+        let truncatedCommand = command.count > 100 ? String(command.prefix(100)) + "…" : command
+        return ListPickerState(
+            title: "沙箱拒绝了这次命令，是否提升权限重跑？",
+            subtitle: "\(truncatedCommand)\n原因: \(reason)",
+            items: [
+                ListPickerItem(id: "allow", title: "允许一次", subtitle: "本次以非沙箱方式重跑（仅此一次）"),
+                ListPickerItem(id: "deny", title: "拒绝", subtitle: "按失败处理并回灌模型"),
+            ],
+            selectedIndex: 1, // 默认落在「拒绝」，安全优先
+            footer: "(↑↓ 选择，Enter 确认，Esc 拒绝)"
+        )
     }
 
     func saveLastSession() {
