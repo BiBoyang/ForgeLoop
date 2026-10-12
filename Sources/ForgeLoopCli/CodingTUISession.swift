@@ -108,7 +108,9 @@ final class CodingTUISession {
                 messages: lastSession.messages,
                 modelID: lastSession.modelID
             )
-            modelStore.save(agent.state.model)
+            // 注意：不要把恢复出的模型 modelStore.save 回写——session 里残留的过期 modelID
+            // 会借此污染用户当前的模型配置（2026-10-12 实测事故：faux 实验残留
+            // "new-model-id" 经此路径反复覆写 deepseek 配置）。
         }
 
         controller = PromptController(
