@@ -104,6 +104,11 @@ public struct PromptController {
         return try await coordinator.submit(text)
     }
 
+    /// 仅供 @testable 测试：等待当前后台 run 完全 settle。
+    func waitForBackgroundRunForTesting() async {
+        await coordinator.waitForBackgroundRunForTesting()
+    }
+
     func handleSlashCommand(_ text: String) async -> SubmitResult {
         await diagnostics.log.log(
             level: .debug,

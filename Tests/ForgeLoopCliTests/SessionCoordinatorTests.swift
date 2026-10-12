@@ -19,6 +19,8 @@ final class SessionCoordinatorTests: XCTestCase {
         let coordinator = SessionCoordinator(agent: agent, attachmentStore: store)
 
         let result = try await coordinator.submit("hello")
+        // submit 非阻塞（TASK-submit-nonblocking）：等后台 run 完成再断言
+        await coordinator.waitForBackgroundRunForTesting()
 
         XCTAssertEqual(result, .submitted)
         let userMessages = agent.state.messages.compactMap { msg -> UserMessage? in

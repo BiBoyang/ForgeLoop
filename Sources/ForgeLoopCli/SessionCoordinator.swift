@@ -34,6 +34,21 @@ public final class SessionCoordinator {
     private var activityTracker = SessionActivityTracker()
     private var activityUnsubscribe: Unsubscribe?
 
+    /// Task driving the currently active backgrounded run. Set synchronously on
+    /// the main actor before `submit` returns, so a follow-up submit that lands
+    /// before `agent.state.isStreaming` flips still takes the steer path
+    /// (single-active-run invariant, AGENTS.md §4). The task owns the run's
+    /// lifetime on the coordinator side (no unstructured `Task.detached`).
+    /// internal（非 private）仅供 @testable 测试做确定性同步。
+    var activeRunTask: Task<Void, Never>?
+
+    /// Called on the main actor when a backgrounded run fails *before* the
+    /// agent's event stream takes over (e.g. a throwing `userPromptSubmit`
+    /// hook). Run-time failures don't come through here — `runLifecycle`
+    /// already surfaces them via the event stream (failure `messageStart` /
+    /// `messageEnd` + `agentEnd`), which frontends render.
+    public var onRunStartupFailure: (@MainActor (String) -> Void)?
+
     public init(
         agent: Agent,
         modelStore: ModelStore? = nil,
@@ -86,11 +101,11 @@ public final class SessionCoordinator {
             operation: "submit",
             attributes: ["has_slash_command": .bool(text.hasPrefix("/"))]
         )
-        var submitError: TraceError?
+        // submit 本体不再抛 run 错误（run 在后台任务里，错误经事件流/回调暴露），
+        // span 只度量提交动作本身；保留 `throws` 签名以兼容现有调用点。
         defer {
-            let capturedError = submitError
             Task {
-                await diagnostics.trace.endSpan(span, attributes: [:], error: capturedError)
+                await diagnostics.trace.endSpan(span, attributes: [:], error: nil)
             }
         }
 
@@ -104,29 +119,63 @@ public final class SessionCoordinator {
             ]
         )
 
-        do {
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            if trimmed.hasPrefix("/") {
-                return await handleSlashCommand(trimmed)
+        if trimmed.hasPrefix("/") {
+            return await handleSlashCommand(trimmed)
+        }
+
+        let finalText = injectAttachments(into: trimmed, attachments: attachmentStore.snapshot())
+
+        guard !finalText.isEmpty else {
+            return .submitted
+        }
+
+        if agent.state.isStreaming || activeRunTask != nil {
+            agent.steer(.user(UserMessage(text: finalText)))
+            return .submitted
+        } else {
+            // 方案 B（TASK-submit-nonblocking）：后台执行 run，立即返回，
+            // TUI/AppKit 事件循环在 run 期间保持响应（审批 picker 可操作、
+            // Esc 可中断、后续输入走 steer）。
+            // 语义变化：run 错误不再经 throw 上抛——`runLifecycle` 内部已
+            // 通过事件流（failure messageStart/messageEnd + agentEnd）暴露，
+            // 前端照常渲染；真正的启动失败（见 catch）走 onRunStartupFailure。
+            let task = Task { [weak self] in
+                guard let self else { return }
+                defer { self.activeRunTask = nil }
+                do {
+                    try await self.agent.prompt(finalText)
+                } catch AgentError.alreadyRunning {
+                    // 竞态兜底：其他路径（如 agent.continue）抢先启动了 run。
+                    // 不静默丢弃用户输入，降级为 steer 汇入进行中的 run。
+                    await self.diagnostics.log.log(
+                        level: .error,
+                        message: "session.submit.run_start_conflict",
+                        attributes: ["detail": .string("alreadyRunning; downgraded to steer")]
+                    )
+                    self.agent.steer(.user(UserMessage(text: finalText)))
+                } catch {
+                    await self.diagnostics.log.log(
+                        level: .error,
+                        message: "session.submit.run_start_failed",
+                        attributes: ["error": .string("\(error)")]
+                    )
+                    self.onRunStartupFailure?("\(error)")
+                }
             }
+            activeRunTask = task
+            return .submitted
+        }
+    }
 
-            let finalText = injectAttachments(into: trimmed, attachments: attachmentStore.snapshot())
-
-            guard !finalText.isEmpty else {
-                return .submitted
-            }
-
-            if agent.state.isStreaming {
-                agent.steer(.user(UserMessage(text: finalText)))
-                return .submitted
-            } else {
-                try await agent.prompt(finalText)
-                return .submitted
-            }
-        } catch {
-            submitError = TraceError(type: String(describing: type(of: error)), message: "\(error)")
-            throw error
+    /// 仅供 @testable 测试：等待后台 run 完全 settle（含任务清理）。
+    /// `activeRunTask` 在 submit 返回前同步置位、run 结束后由任务 defer 清理，
+    /// 轮询它是确定性的。生产代码不应依赖此同步。
+    func waitForBackgroundRunForTesting() async {
+        while activeRunTask != nil {
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
         }
     }
 

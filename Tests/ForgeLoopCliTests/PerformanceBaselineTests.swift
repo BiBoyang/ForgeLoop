@@ -317,11 +317,10 @@ final class PerformanceBaselineTests: XCTestCase {
 
         let sample = makeSample(label: "input-latency-idle-prompt", values: latencies)
         print("\n[BASELINE] \(sample)")
-        // 基线记录，faux provider 的 prompt 包含完整生命周期。
-        // F1: 输入延迟使用 p50 作为核心指标。
-        // 注意：idle-prompt 包含完整 Agent 生命周期，绝对值受 faux provider 异步
-        // 行为影响，跨运行波动较大。此处阈值仅作 sanity check（宽松），
-        // 真实回归检测使用相对变化（>10%）对比历史快照。
+        // 基线记录。F1: 输入延迟使用 p50 作为核心指标。
+        // 注意：TASK-submit-nonblocking 后 submit 非阻塞（spawn 后台 run 即返回），
+        // 该指标语义变为「提交调度延迟」，不再包含完整 Agent 生命周期。
+        // 此处阈值仅作 sanity check（宽松），真实回归检测使用相对变化（>10%）对比历史快照。
         XCTAssertLessThan(sample.p50Millis, 200.0, "Input latency idle prompt p50 sanity check (faux lifecycle)")
     }
 

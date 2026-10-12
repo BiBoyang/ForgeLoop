@@ -29,6 +29,8 @@ final class PromptControllerTests: XCTestCase {
         let result = try await controller.submit("hello")
         XCTAssertEqual(result, .submitted)
 
+        // submit 非阻塞（TASK-submit-nonblocking）：后台 run 完成后再断言
+        await controller.waitForBackgroundRunForTesting()
         XCTAssertEqual(agent.state.messages.count, 2)
         XCTAssertEqual(agent.state.messages[0].role, "user")
         XCTAssertEqual(agent.state.messages[1].role, "assistant")
@@ -67,6 +69,7 @@ final class PromptControllerTests: XCTestCase {
 
         stream.end(AssistantMessage.text("done", stopReason: .endTurn))
         try await promptTask.value
+        await controller.waitForBackgroundRunForTesting()
     }
 
     // MARK: - 3) streaming 时不会触发 alreadyRunning
@@ -101,6 +104,7 @@ final class PromptControllerTests: XCTestCase {
 
         stream.end(AssistantMessage.text("done", stopReason: .endTurn))
         try await promptTask.value
+        await controller.waitForBackgroundRunForTesting()
     }
 
     // MARK: - 4) streaming 期间 steer 后 slash 命令不丢队列
@@ -146,6 +150,7 @@ final class PromptControllerTests: XCTestCase {
 
         stream.end(AssistantMessage.text("done", stopReason: .endTurn))
         try await promptTask.value
+        await controller.waitForBackgroundRunForTesting()
     }
 
     // MARK: - 5) streaming 期间多条 slash 命令都能正常返回 feedback
@@ -188,6 +193,7 @@ final class PromptControllerTests: XCTestCase {
 
         stream.end(AssistantMessage.text("done", stopReason: .endTurn))
         try await promptTask.value
+        await controller.waitForBackgroundRunForTesting()
 
         XCTAssertFalse(agent.state.isStreaming)
     }
@@ -203,8 +209,9 @@ final class PromptControllerTests: XCTestCase {
         let agent = Agent(initialState: AgentInitialState(model: testModel))
         let controller = PromptController(agent: agent)
 
-        // idle 状态下 prompt
+        // idle 状态下 prompt（非阻塞：等后台 run 完成再断言）
         _ = try await controller.submit("hello")
+        await controller.waitForBackgroundRunForTesting()
         XCTAssertEqual(agent.state.messages.count, 2)
 
         // steer 一条消息（此时 agent idle，入队但不消费）
@@ -242,6 +249,7 @@ final class PromptControllerTests: XCTestCase {
         }
         stream1.end(AssistantMessage.text("response", stopReason: .endTurn))
         try await task1.value
+        await controller.waitForBackgroundRunForTesting()
 
         XCTAssertEqual(agent.state.messages.count, 2)
 
@@ -269,6 +277,7 @@ final class PromptControllerTests: XCTestCase {
 
         stream2.end(AssistantMessage.text("done", stopReason: .endTurn))
         try await task2.value
+        await controller.waitForBackgroundRunForTesting()
 
         XCTAssertEqual(agent.state.messages.count, 4)
         XCTAssertEqual(agent.queuedSteeringMessages().count, 1)
@@ -306,6 +315,7 @@ final class PromptControllerTests: XCTestCase {
         }
         stream1.end(AssistantMessage.text("response", stopReason: .endTurn))
         try await task1.value
+        await controller.waitForBackgroundRunForTesting()
 
         let stream2 = AssistantMessageStream()
         provider.stream = stream2
@@ -330,6 +340,7 @@ final class PromptControllerTests: XCTestCase {
 
         stream2.end(AssistantMessage.text("done", stopReason: .endTurn))
         try await task2.value
+        await controller.waitForBackgroundRunForTesting()
 
         // continue 消费队列
         let stream3 = AssistantMessageStream()
@@ -366,6 +377,7 @@ final class PromptControllerTests: XCTestCase {
         let controller = PromptController(agent: agent, attachmentStore: store)
 
         try await controller.submit("hello")
+        await controller.waitForBackgroundRunForTesting()
 
         guard case .user(let userMessage) = agent.state.messages.first else {
             XCTFail("Expected user message")
@@ -387,6 +399,7 @@ final class PromptControllerTests: XCTestCase {
         let controller = PromptController(agent: agent, attachmentStore: store)
 
         try await controller.submit("review")
+        await controller.waitForBackgroundRunForTesting()
 
         guard case .user(let userMessage) = agent.state.messages.first else {
             XCTFail("Expected user message")
@@ -406,6 +419,7 @@ final class PromptControllerTests: XCTestCase {
         let controller = PromptController(agent: agent)
 
         try await controller.submit("plain message")
+        await controller.waitForBackgroundRunForTesting()
 
         guard case .user(let userMessage) = agent.state.messages.first else {
             XCTFail("Expected user message")
@@ -426,9 +440,11 @@ final class PromptControllerTests: XCTestCase {
         let controller = PromptController(agent: agent, attachmentStore: store)
 
         try await controller.submit("first")
+        await controller.waitForBackgroundRunForTesting()
         XCTAssertEqual(store.count, 1)
 
         try await controller.submit("second")
+        await controller.waitForBackgroundRunForTesting()
         XCTAssertEqual(store.count, 1)
     }
 
@@ -446,6 +462,7 @@ final class PromptControllerTests: XCTestCase {
         let controller = PromptController(agent: agent, attachmentStore: store)
 
         try await controller.submit("")
+        await controller.waitForBackgroundRunForTesting()
 
         guard case .user(let userMessage) = agent.state.messages.first else {
             XCTFail("Expected user message")
@@ -466,6 +483,7 @@ final class PromptControllerTests: XCTestCase {
         let controller = PromptController(agent: agent, attachmentStore: store)
 
         try await controller.submit("")
+        await controller.waitForBackgroundRunForTesting()
 
         guard case .user(let userMessage) = agent.state.messages.first else {
             XCTFail("Expected user message")
