@@ -31,6 +31,47 @@ extension CodingTUISession {
     func handleResolvedKey(_ resolved: ResolvedKey<KeyAction>) async -> Bool {
         switch resolved {
         case .action(let keyAction):
+            // 沙箱升级审批优先于一切输入路由：picker 活跃期间阻塞等待用户决策
+            if var approval = activeApproval {
+                switch keyAction {
+                case .historyPrev, .moveUp:
+                    _ = approval.picker.handle(.moveUp)
+                    activeApproval = approval
+                    renderFrame(priority: .immediate)
+                    return true
+                case .historyNext, .moveDown:
+                    _ = approval.picker.handle(.moveDown)
+                    activeApproval = approval
+                    renderFrame(priority: .immediate)
+                    return true
+                case .submit, .insertNewline:
+                    let outcome = approval.picker.handle(.confirm)
+                    activeApproval = nil
+                    var approved = false
+                    if case .confirmed(let item) = outcome {
+                        approved = item.id == "allow"
+                    }
+                    approval.continuation.resume(returning: approved)
+                    renderFrame(priority: .immediate)
+                    return true
+                case .cancel:
+                    // Esc = 拒绝：立即解除等待（abort 可中断等待语义）
+                    activeApproval = nil
+                    approval.continuation.resume(returning: false)
+                    renderFrame(priority: .immediate)
+                    return true
+                case .exit:
+                    activeApproval = nil
+                    approval.continuation.resume(returning: false)
+                    saveLastSession()
+                    bgMonitor?.cancel()
+                    if let renderLoop { renderLoop.stop() }
+                    return false
+                default:
+                    return true
+                }
+            }
+
             if var modelPicker = activeModelPicker {
                 switch keyAction {
                 case .historyPrev, .moveUp:

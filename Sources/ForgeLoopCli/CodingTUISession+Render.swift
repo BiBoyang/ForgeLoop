@@ -40,6 +40,19 @@ extension CodingTUISession {
         statusLines: [String],
         config: ScreenLayoutConfig
     ) -> FooterRenderState {
+        if let approvalPicker = activeApproval?.picker {
+            let inputLines = pickerRenderer.render(state: approvalPicker)
+            let frame = CodingTUIFrameBuilder.build(input: .init(
+                queueLines: queueLines,
+                statusLines: (activeFooterNotice?.lines ?? []) + statusLines,
+                inputLines: inputLines,
+                terminalHeight: config.terminalHeight,
+                terminalWidth: config.terminalWidth,
+                showHeader: config.showHeader
+            ))
+            return FooterRenderState(inputLines: inputLines, frame: frame, cursorPlacement: nil)
+        }
+
         if let activeModelPicker {
             let inputLines = pickerRenderer.render(state: activeModelPicker)
             let frame = CodingTUIFrameBuilder.build(input: .init(
@@ -83,7 +96,7 @@ extension CodingTUISession {
                 phase: resolveStatusPhase(
                     isStreaming: agent.state.isStreaming,
                     isAborting: isAbortRequested,
-                    isSelectingModel: activeModelPicker != nil,
+                    isSelectingModel: activeModelPicker != nil || activeApproval != nil,
                     hasRunningBackgroundTasks: backgroundTaskSummary.runningCount > 0
                 ),
                 pendingToolCount: renderer.pendingToolCount,

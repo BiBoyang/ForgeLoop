@@ -1,6 +1,7 @@
 import Foundation
 import ForgeLoopAI
 import ForgeLoopDiagnostics
+import ForgeLoopSandbox
 
 /// Error raised when a subagent run is cancelled before it completes naturally.
 public struct SubagentCancellationError: Error, Sendable {}
@@ -33,8 +34,28 @@ public func runSubagent(
     childConfig.systemPrompt = definition.prompt
     childConfig.subagents = []
 
+    // 主 agent 的 sandbox profile 透传进 subagent（堵裸奔通道，Owner 批准扩 scope 2026-10-12）。
+    // subagent 不接 escalationHandler：拒绝即失败，不在 subagent 内交互。
+    let sandboxProfile: PermissionProfile
+    if let override = childConfig.sandboxProfile {
+        sandboxProfile = override
+    } else {
+        let made = SandboxProfileFactory.makeDefault(cwd: childConfig.cwd)
+        sandboxProfile = made.profile
+        for rejected in made.rejected {
+            await diagnostics.log.log(
+                level: .warn,
+                message: "subagent sandbox writable root rejected; degraded profile may apply",
+                attributes: [
+                    "path": .string(rejected.path),
+                    "reason": .string(rejected.reason),
+                ]
+            )
+        }
+    }
+
     let toolExecutor = ToolExecutor(diagnostics: diagnostics)
-    registerAllowedTools(into: toolExecutor, for: definition.tools)
+    registerAllowedTools(into: toolExecutor, for: definition.tools, profile: sandboxProfile)
 
     let childAgent = Agent(
         initialState: AgentInitialState(
@@ -83,9 +104,11 @@ public func runSubagent(
     return SubagentResult(text: text, toolCalls: toolCalls, messages: messages)
 }
 
-private func registerAllowedTools(into executor: ToolExecutor, for tools: SubagentTools) {
+private func registerAllowedTools(into executor: ToolExecutor,
+                                  for tools: SubagentTools,
+                                  profile: PermissionProfile) {
     let allowedNames = allowedToolNames(for: tools)
-    let bgManager = BackgroundTaskManager()
+    let bgManager = BackgroundTaskManager(profile: profile)
 
     let allTools: [(String, () -> any Tool)] = [
         ("read", { ReadTool() }),
@@ -94,7 +117,7 @@ private func registerAllowedTools(into executor: ToolExecutor, for tools: Subage
         ("list", { ListTool() }),
         ("find", { FindTool() }),
         ("grep", { GrepTool() }),
-        ("bash", { BashTool(manager: bgManager) }),
+        ("bash", { BashTool(manager: bgManager, profile: profile) }),
         ("bg", { BgTool(manager: bgManager) }),
         ("bg_status", { BgStatusTool(manager: bgManager) })
     ]

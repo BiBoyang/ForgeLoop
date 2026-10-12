@@ -63,6 +63,10 @@ public struct CodingAgentConfig: Sendable {
     /// 沙箱策略覆盖口子。nil = 默认 `workspaceWrite(cwd)` + 断网；
     /// 传 `fullAccess + network enabled` 即完全放行（配置/UI 接线不在本期范围）。
     public var sandboxProfile: PermissionProfile?
+    /// 沙箱拒绝后的升级审批策略，默认 onFailure。
+    public var approvalPolicy: ApprovalPolicy
+    /// 升级审批回调（CLI 注入交互 UI）；nil = 不审批，等价 never（AppKit 默认走这里）。
+    public var escalationHandler: SandboxEscalationHandler?
 
     public init(
         model: Model,
@@ -71,7 +75,9 @@ public struct CodingAgentConfig: Sendable {
         toolExecutionMode: ToolExecutionMode = .sequential,
         subagents: [SubagentDefinition] = [],
         streamFn: StreamFn? = nil,
-        sandboxProfile: PermissionProfile? = nil
+        sandboxProfile: PermissionProfile? = nil,
+        approvalPolicy: ApprovalPolicy = .default,
+        escalationHandler: SandboxEscalationHandler? = nil
     ) {
         self.model = model
         self.cwd = cwd
@@ -80,6 +86,8 @@ public struct CodingAgentConfig: Sendable {
         self.subagents = subagents
         self.streamFn = streamFn
         self.sandboxProfile = sandboxProfile
+        self.approvalPolicy = approvalPolicy
+        self.escalationHandler = escalationHandler
     }
 }
 
@@ -116,7 +124,12 @@ public func makeCodingAgent(
     }
 
     let bgManager = BackgroundTaskManager(profile: sandboxProfile)
-    toolExecutor.register(BashTool(manager: bgManager, profile: sandboxProfile))
+    toolExecutor.register(BashTool(
+        manager: bgManager,
+        profile: sandboxProfile,
+        policy: config.approvalPolicy,
+        escalationHandler: config.escalationHandler
+    ))
     toolExecutor.register(BgTool(manager: bgManager))
     toolExecutor.register(BgStatusTool(manager: bgManager))
 
