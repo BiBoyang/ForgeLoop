@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "ForgeLoopCli", targets: ["ForgeLoopCli"]),
         .library(name: "ForgeLoopDiagnostics", targets: ["ForgeLoopDiagnostics"]),
         .library(name: "ForgeLoopGit", targets: ["ForgeLoopGit"]),
+        .library(name: "ForgeLoopSandbox", targets: ["ForgeLoopSandbox"]),
         .executable(name: "forgeloop", targets: ["forgeloop"]),
         .executable(name: "ForgeLoopApp", targets: ["ForgeLoopApp"]),
     ],
@@ -27,6 +28,10 @@ let package = Package(
         .target(
             name: "ForgeLoopGit",
             path: "Sources/ForgeLoopGit"
+        ),
+        .target(
+            name: "ForgeLoopSandbox",
+            path: "Sources/ForgeLoopSandbox"
         ),
         .target(
             name: "ForgeLoopAI",
@@ -119,6 +124,11 @@ let package = Package(
             name: "ForgeLoopGitTests",
             dependencies: ["ForgeLoopGit"],
             path: "Tests/ForgeLoopGitTests"
+        ),
+        .testTarget(
+            name: "ForgeLoopSandboxTests",
+            dependencies: ["ForgeLoopSandbox"],
+            path: "Tests/ForgeLoopSandboxTests"
         ),
     ],
     swiftLanguageModes: [.v6]
