@@ -56,7 +56,9 @@ public func makeKeybindings() -> KeybindingRegistry<KeyAction> {
         }
     }
 
-    bind(KeySequence(KeyStroke(key: .enter)), .insertNewline)
+    // Enter 提交（对齐 Codex/Claude Code 惯例）；换行用 Ctrl+J / Ctrl+O。
+    // 历史上这里曾把 Enter 绑成 insertNewline，导致"按 Enter 不提交"的卡住假象。
+    bind(KeySequence(KeyStroke(key: .enter)), .submit)
     bind(KeySequence(KeyStroke(key: .backspace)), .delete)
     bind(KeySequence(KeyStroke(key: .delete)), .deleteForward)
     bind(KeySequence(KeyStroke(key: .left)), .moveLeft)
@@ -76,7 +78,7 @@ public func makeKeybindings() -> KeybindingRegistry<KeyAction> {
     bind(KeySequence(KeyStroke(key: .character("P"), modifiers: .ctrl)), .historyPrev)
     bind(KeySequence(KeyStroke(key: .character("N"), modifiers: .ctrl)), .historyNext)
     bind(KeySequence(KeyStroke(key: .character("O"), modifiers: .ctrl)), .insertNewline)
-    bind(KeySequence(KeyStroke(key: .character("J"), modifiers: .ctrl)), .submit)
+    bind(KeySequence(KeyStroke(key: .character("J"), modifiers: .ctrl)), .insertNewline)
     bind(KeySequence(KeyStroke(key: .character("C"), modifiers: .ctrl)), .exit)
     bind(KeySequence(KeyStroke(key: .character("T"), modifiers: .command)), .newTab)
     bind(KeySequence(KeyStroke(key: .character("W"), modifiers: .command)), .closeTab)
