@@ -40,7 +40,7 @@ let package = Package(
         ),
         .target(
             name: "ForgeLoopAgent",
-            dependencies: ["ForgeLoopAI", "ForgeLoopDiagnostics"],
+            dependencies: ["ForgeLoopAI", "ForgeLoopDiagnostics", "ForgeLoopSandbox"],
             path: "Sources/ForgeLoopAgent"
         ),
         .target(

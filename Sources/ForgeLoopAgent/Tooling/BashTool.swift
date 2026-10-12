@@ -1,5 +1,6 @@
 import Foundation
 import ForgeLoopAI
+import ForgeLoopSandbox
 
 private let bashToolSchema = ToolArgsSchema(fields: [
     ToolArgField(name: "command", type: .string, required: true),
@@ -8,31 +9,21 @@ private let bashToolSchema = ToolArgsSchema(fields: [
     ToolArgField(name: "mode", type: .string, required: false)
 ])
 
-/// 对仍走 shell 的 command 做最小审计，阻断常见命令注入向量。
-private enum ShellCommandAuditor {
-    /// 禁止出现的 shell 元字符。简单命令（含空格、引号、减号、斜杠）仍可通过。
-    static let forbiddenCharacters = CharacterSet(charactersIn: ";`$|&<>{}()\\\n\r")
-
-    static func validate(_ command: String) -> ToolResult? {
-        if command.rangeOfCharacter(from: forbiddenCharacters) != nil {
-            return ToolResult.error(
-                .executionFailed,
-                message: "Command contains forbidden shell metacharacters. Use simple commands or provide an executable and args.",
-                hint: "path: $.command"
-            )
-        }
-        return nil
-    }
-}
-
+/// 无 `args` 时 command 经 `/bin/sh -c` 执行（完整 shell 能力：管道/重定向/复合命令）；
+/// 安全边界由 OS 沙箱（seatbelt）承担，profile 从注入点获取。
 public struct BashTool: Tool {
     public let name = "bash"
     public let defaultTimeoutMs: Int
     private let manager: BackgroundTaskManager?
+    /// 沙箱策略。nil = 不包装（默认，保持既有调用方行为）。
+    private let profile: PermissionProfile?
 
-    public init(defaultTimeoutMs: Int = 15_000, manager: BackgroundTaskManager? = nil) {
+    public init(defaultTimeoutMs: Int = 15_000,
+                manager: BackgroundTaskManager? = nil,
+                profile: PermissionProfile? = nil) {
         self.defaultTimeoutMs = defaultTimeoutMs
         self.manager = manager
+        self.profile = profile
     }
 
     public func execute(arguments: String, cwd: String, cancellation: CancellationHandle?) async -> ToolResult {
@@ -64,9 +55,6 @@ public struct BashTool: Tool {
             guard commandArgs == nil else {
                 return ToolResult.error(.invalidType, message: "args is not supported in background mode", hint: "path: $.args")
             }
-            if let auditError = ShellCommandAuditor.validate(command) {
-                return auditError
-            }
             guard let manager = manager else {
                 return ToolResult.error(.notImplemented, message: "Background mode requires a BackgroundTaskManager")
             }
@@ -86,16 +74,12 @@ public struct BashTool: Tool {
             return ToolResult.error(.invalidType, message: "timeoutMs must be greater than 0", hint: "path: $.timeoutMs")
         }
 
-        // 未使用 args 时，必须经过 shell 审计。
-        if commandArgs == nil, let auditError = ShellCommandAuditor.validate(command) {
-            return auditError
-        }
-
         let result = await ProcessRunner.run(
             command: command,
             args: commandArgs,
             cwd: cwd,
             timeoutMs: timeoutMs,
+            profile: profile,
             cancellation: cancellation
         )
 

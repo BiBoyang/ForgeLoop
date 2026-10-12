@@ -1,5 +1,6 @@
 import Foundation
 import ForgeLoopAI
+import ForgeLoopSandbox
 
 public struct ProcessResult: Sendable {
     public var stdout: String
@@ -19,20 +20,37 @@ public enum ProcessRunner {
     /// 最大输出限制：64KB（每路），超限截断
     public static let maxOutputBytes = 65_536
 
+    /// - Parameters:
+    ///   - profile: 可选沙箱策略。nil = 不包装（默认，保持既有调用方行为）；
+    ///     非 nil 时经 `SandboxTransform` 判定——需要沙箱则包装为
+    ///     `/usr/bin/sandbox-exec -p <sbpl> ...`，`fullAccess + network enabled` 原样透传。
     public static func run(
         command: String,
         args: [String]? = nil,
         cwd: String,
         timeoutMs: Int? = nil,
+        profile: PermissionProfile? = nil,
         cancellation: CancellationHandle?
     ) async -> ProcessResult {
         let process = Process()
+        // 先决定"未经沙箱"的 exec 形态：有 args 直接 exec，无 args 走 /bin/sh -c（完整 shell 能力）
+        let executable: String
+        let arguments: [String]
         if let args = args {
-            process.executableURL = URL(fileURLWithPath: command)
-            process.arguments = args
+            executable = command
+            arguments = args
         } else {
-            process.executableURL = URL(fileURLWithPath: "/bin/sh")
-            process.arguments = ["-c", command]
+            executable = "/bin/sh"
+            arguments = ["-c", command]
+        }
+        // 沙箱包装复杂度沉在这里，调用方只传 profile
+        if let profile = profile {
+            let wrapped = SandboxTransform.wrap(command: executable, arguments: arguments, profile: profile)
+            process.executableURL = URL(fileURLWithPath: wrapped[0])
+            process.arguments = Array(wrapped.dropFirst())
+        } else {
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = arguments
         }
         if !cwd.isEmpty {
             process.currentDirectoryURL = URL(fileURLWithPath: cwd)

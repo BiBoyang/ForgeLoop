@@ -1,5 +1,6 @@
 import Foundation
 import ForgeLoopAI
+import ForgeLoopSandbox
 
 /// Error thrown when a background task cannot be started.
 public enum BackgroundTaskStartError: Error, Sendable {
@@ -58,10 +59,13 @@ public actor BackgroundTaskManager {
     public let maxConcurrent: Int
     /// Maximum number of completed/running records to retain. Oldest completed records are pruned first.
     public let maxRetained: Int
+    /// 沙箱策略，全部后台任务统一经 SandboxTransform 包装；nil = 不包装（默认）。
+    public let profile: PermissionProfile?
 
-    public init(maxConcurrent: Int = 8, maxRetained: Int = 50) {
+    public init(maxConcurrent: Int = 8, maxRetained: Int = 50, profile: PermissionProfile? = nil) {
         self.maxConcurrent = max(maxConcurrent, 1)
         self.maxRetained = max(maxRetained, 1)
+        self.profile = profile
     }
 
     public func setCompletionHandler(_ handler: @escaping @Sendable (BackgroundTaskRecord) async -> Void) {
@@ -93,6 +97,7 @@ public actor BackgroundTaskManager {
                 command: command,
                 cwd: cwd,
                 timeoutMs: effectiveTimeout,
+                profile: profile,
                 cancellation: cancellation
             )
 

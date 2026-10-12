@@ -247,54 +247,55 @@ final class BashToolTests: XCTestCase {
         XCTAssertFalse(result.output.isEmpty)
     }
 
-    // MARK: - 命令注入防护
+    // MARK: - 完整 shell 能力（ShellCommandAuditor 已删除，安全边界移交 OS 沙箱）
 
-    func testSemicolonInjectionIsRejected() async throws {
+    func testSemicolonCompoundCommandExecutes() async throws {
         let tool = BashTool()
         let result = await tool.execute(
-            arguments: "{\"command\":\"echo hello; cat /etc/passwd\"}",
+            arguments: "{\"command\":\"echo hello; echo world\"}",
             cwd: "/tmp",
             cancellation: nil
         )
 
-        XCTAssertTrue(result.isError)
-        XCTAssertTrue(result.output.contains("forbidden shell metacharacters"))
+        XCTAssertFalse(result.isError)
+        XCTAssertTrue(result.output.contains("hello"))
+        XCTAssertTrue(result.output.contains("world"))
     }
 
-    func testCommandSubstitutionInjectionIsRejected() async throws {
+    func testCommandSubstitutionExecutes() async throws {
         let tool = BashTool()
         let result = await tool.execute(
-            arguments: "{\"command\":\"echo $(id)\"}",
+            arguments: "{\"command\":\"echo sub:$(echo inner)\"}",
             cwd: "/tmp",
             cancellation: nil
         )
 
-        XCTAssertTrue(result.isError)
-        XCTAssertTrue(result.output.contains("forbidden shell metacharacters"))
+        XCTAssertFalse(result.isError)
+        XCTAssertTrue(result.output.contains("sub:inner"))
     }
 
-    func testBacktickCommandSubstitutionInjectionIsRejected() async throws {
+    func testBacktickCommandSubstitutionExecutes() async throws {
         let tool = BashTool()
         let result = await tool.execute(
-            arguments: "{\"command\":\"echo `id`\"}",
+            arguments: "{\"command\":\"echo `echo tick`\"}",
             cwd: "/tmp",
             cancellation: nil
         )
 
-        XCTAssertTrue(result.isError)
-        XCTAssertTrue(result.output.contains("forbidden shell metacharacters"))
+        XCTAssertFalse(result.isError)
+        XCTAssertTrue(result.output.contains("tick"))
     }
 
-    func testPipeInjectionIsRejected() async throws {
+    func testPipeCommandExecutes() async throws {
         let tool = BashTool()
         let result = await tool.execute(
-            arguments: "{\"command\":\"echo hello | cat /etc/passwd\"}",
+            arguments: "{\"command\":\"printf 'a\\nb\\n' | head -1\"}",
             cwd: "/tmp",
             cancellation: nil
         )
 
-        XCTAssertTrue(result.isError)
-        XCTAssertTrue(result.output.contains("forbidden shell metacharacters"))
+        XCTAssertFalse(result.isError)
+        XCTAssertEqual(result.output.trimmingCharacters(in: .whitespacesAndNewlines), "a")
     }
 
     // MARK: - args 模式（不走 shell）
