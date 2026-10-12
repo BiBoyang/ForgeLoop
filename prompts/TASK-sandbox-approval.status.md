@@ -1,0 +1,3 @@
+2026-10-12 12:25 | step 1 | done | ForgeLoopSandbox += ApprovalPolicy/SandboxDenialHeuristic；BashTool 升级链路（批准重跑一次/拒绝回灌/never 不问）；CodingAgentBuilder config 口子；SubagentRunner profile 透传；CLI 审批 UI（ListPicker 阻塞等待，Esc=拒绝） | 跑测试
+2026-10-12 12:27 | step 2 | done | 测试：SandboxTests += ApprovalAndDenialTests 7 用例（spike §2.1 真实样本正例 + 3 类负例）；AgentTests += SandboxEscalationTests 7 用例（三分支 + handler 缺失 + 非拒绝不触发 + 无沙箱不触发 + subagent 覆盖） | 全量回归
+2026-10-12 12:27 | step 3 | done | swift test --filter ForgeLoopSandboxTests 绿；--filter Agent 绿（SandboxEscalationTests 7/7）；swift test 全套 FULL_TEST_EXIT=0、91 suite passed、0 failure；swift build 0 警告 | 任务完成，上报 Owner
