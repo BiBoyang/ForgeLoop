@@ -1,6 +1,6 @@
 # TASK-sandbox-wire：执行链路接入沙箱
 
-- 状态：pending
+- 状态：done
 - 依赖：TASK-sandbox-core
 - 下游：TASK-sandbox-approval
 
