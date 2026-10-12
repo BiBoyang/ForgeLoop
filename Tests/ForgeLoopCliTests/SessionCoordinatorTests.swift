@@ -33,7 +33,12 @@ final class SessionCoordinatorTests: XCTestCase {
 
     func testSwitchModelUpdatesAgentAndStore() async throws {
         let agent = Agent(initialState: AgentInitialState(model: testModel))
-        let modelStore = ModelStore()
+        // 必须用临时文件路径：默认 ModelStore() 会写入真实 ~/.config/forgeloop/model.json，
+        // 测试曾因此污染用户真实配置（2026-10-12 实测事故）。
+        let tempModelURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("forgeloop-test-model-\(UUID().uuidString).json")
+        let modelStore = ModelStore(fileURL: tempModelURL)
+        defer { try? FileManager.default.removeItem(at: tempModelURL) }
         let coordinator = SessionCoordinator(agent: agent, modelStore: modelStore)
 
         try await coordinator.switchModel(to: "new-model-id")
